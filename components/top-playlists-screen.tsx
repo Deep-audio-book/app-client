@@ -33,38 +33,38 @@ type Playlist = {
 const PLAYLISTS: Playlist[] = [
   {
     id: 'renaissance-1',
-    title: 'Renaissance',
+    title: '',
     tracks: 843,
     hours: 23,
     gradientColors: ['#8BB400', '#0FD890'],
-    image: require('../assets/images/top-playlist.jpeg'),
+    image: require('../assets/images/top-playlist/1.jpeg'),
 
   },
   {
     id: 'renaissance-2',
-    title: 'Renaissance',
+    title: '',
     tracks: 843,
     hours: 23,
     gradientColors: ['#8BB400', '#0FD890'],
-    image: "",
+    image: require('../assets/images/top-playlist/2.jpg'),
 
   },
   {
     id: 'urgent-siege',
-    title: 'Urgent Siege',
+    title: '',
     tracks: 843,
     hours: 23,
     gradientColors: ['#FC000A', '#FD764C'],
-    image:"",
+    image: require('../assets/images/top-playlist/3.jpg'),
 
   },
   {
     id: 'ecstasy',
-    title: 'Ecstasy',
+    title: '',
     tracks: 843,
     hours: 23,
     gradientColors: ['#7BADF1', '#F1C343'],
-    image: "",
+    image: require('../assets/images/top-playlist/4.jpg'),
 
   },
 ];
@@ -157,7 +157,7 @@ function BottomTabBar({ bottomInset }: { bottomInset: number }) {
         <Text style={styles.tabLabel}>Top</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.tabItem}>
+      <TouchableOpacity style={styles.tabItem} onPress={() => router.push('/favorites')}>
         <Ionicons name="bookmark-outline" size={24} color="#8A8A8A" />
         <Text style={styles.tabLabel}>Favorites</Text>
       </TouchableOpacity>

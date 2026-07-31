@@ -24,30 +24,30 @@ const MIN_TOUCH_TARGET = 44;
 // ];
 const RELEASES = [
   {
-    id: "urgent-siege-1",
-    title: "Urgent Siege",
-    artist: "Damned Anthem",
-    image: require("../assets/images/home-img.jpeg"),
+    id: 1,
+    title: "Ezhavathu Jenmam",
+    artist: "Indra Soundarrajan",
+    // image: require("../assets/images/home-img.jpeg"),
+     image: require("../assets/images/home/1.jpeg"),
   },
   {
-    id: "urgent-siege-2",
-    title: "Urgent Siege",
-    artist: "Damned Anthem",
-    // image: require("../assets/images/home-img.jpeg"),
+    id: 2,
+    title: "Aaram Sakthi",
+    artist: "Indra Soundarrajan",
+    image: require("../assets/images/home/2.jpg"),
     color: '#56D384' 
   },
   {
-    id: "urgent-siege-3",
-    title: "Urgent Siege",
-    artist: "Damned Anthem",
-    image: require("../assets/images/home-img.jpeg"),
+    id: 3,
+    title: "Aindhaam Sakthi",
+    artist: "Indra Soundarrajan",
+    image: require("../assets/images/home/3.jpg"),
   },
   {
-    id: "urgent-siege-4",
-    title: "Urgent Siege",
-    artist: "Damned Anthem",
-    // image: require("../assets/images/home-img.jpeg"),
-    color: '#56D384' 
+    id: 4,
+    title: "Kaatrai Maarividu - Naankaam Sakthi",
+    artist: "Indra Soundarrajan",
+    image: require("../assets/images/home/4.jpg"),
   },
 ];
 function clampValue(value: number, min: number, max: number) {
@@ -133,14 +133,29 @@ export default function HomeScreen() {
             {RELEASES.map((release) => (
               <View key={release.id} style={styles.releaseCard}>
                 <View style={styles.releaseArtwork}>
-                  <Pressable onPress={() => router.push("/playlist-detail")}>
+                  {/* <Pressable onPress={() => router.push("/playlist-detail")}>
+                    <Image
+                      source={release.image}
+                      style={styles.releaseImage}
+                      resizeMode="cover"
+                    />
+                  </Pressable> */}
+                  <Pressable
+                    onPress={() =>
+                      router.push({
+                        pathname: "/playlist-detail",
+                        params: {
+                          id: release.id,
+                        },
+                      })
+                    }
+                  >
                     <Image
                       source={release.image}
                       style={styles.releaseImage}
                       resizeMode="cover"
                     />
                   </Pressable>
-
                   <Ionicons
                     name="ellipsis-horizontal"
                     size={16}
@@ -163,7 +178,7 @@ export default function HomeScreen() {
       </ScrollView>
 
       <View style={styles.footer}>
-        <View style={styles.miniPlayer}>
+        {/* <View style={styles.miniPlayer}>
           <Pressable hitSlop={10} style={styles.miniPlayerExpand}>
             <Ionicons name="chevron-up" size={16} color="rgba(255,255,255,0.5)" />
           </Pressable>
@@ -180,7 +195,7 @@ export default function HomeScreen() {
           <View style={styles.miniPlayerProgressTrack}>
             <View style={styles.miniPlayerProgressFill} />
           </View>
-        </View>
+        </View> */}
 
         <SafeAreaView edges={['bottom']} style={styles.tabBar}>
           <Pressable style={styles.tabItem} >
@@ -192,8 +207,10 @@ export default function HomeScreen() {
             <Ionicons name="stats-chart" size={20} color="#8A8A8A" />
             <Text style={styles.tabLabel}>Top</Text>
           </Pressable>
-
-          <Pressable style={styles.tabItem}>
+          <Pressable
+            style={styles.tabItem}
+            onPress={() => router.push('/favorites')}
+          >
             <Ionicons name="bookmark" size={20} color="#8A8A8A" />
             <Text style={styles.tabLabel}>Favorites</Text>
           </Pressable>

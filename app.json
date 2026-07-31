@@ -1,15 +1,16 @@
 {
   "expo": {
     "name": "Deep Audiobooks",
-    "slug": "Deep Audiobooks",
+    "slug": "deep-audiobooks",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "Deep Audiobooks",
+    "scheme": "deepaudiobooks",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.deepaudiobooks.deepaudiobooks"
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +20,12 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
+      "package": "com.deepaudiobooks.deepaudiobooks"
     },
     "web": {
       "output": "static",
@@ -38,11 +44,20 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "expo-audio",
+      "expo-video",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "0144632f-20ec-4f10-9a78-4eb7c192bd01"
+      }
     }
   }
 }

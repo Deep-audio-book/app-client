@@ -11,6 +11,8 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useAppSelector } from '../utils/typedReduxHooks';
+
 const BASE_WIDTH = 390;
 const MAX_CONTENT_WIDTH = 480;
 const MINI_PLAYER_HEIGHT = 51;
@@ -35,6 +37,10 @@ export default function ProfileScreen() {
   const horizontalPadding = Math.round(clampValue(12 * scale, 12, 24));
   const avatarSize = Math.round(clampValue(97 * scale, 88, 120));
   const buttonMinHeight = Math.round(clampValue(58 * scale, MIN_TOUCH_TARGET, 68));
+
+
+    const user = useAppSelector((state) => state.auth.user);
+
 
   return (
     <View style={styles.container}>
@@ -74,8 +80,8 @@ export default function ProfileScreen() {
           ]}
         />
 
-        <Text style={styles.name}>Erlik Bachman</Text>
-        <Text style={styles.email}>Bachman@mail.com</Text>
+        <Text style={styles.name}>{user?.username}</Text>
+        <Text style={styles.email}>{user?.email}</Text>
 
         <View style={[styles.subscriptionCard, { paddingHorizontal: Math.round(24 * scale) }]}>
           <Text style={styles.subscriptionTitle}>My subscription</Text>
@@ -94,12 +100,17 @@ export default function ProfileScreen() {
           <Text style={styles.buttonText}>Enter promo code</Text>
         </Pressable>
 
-        <Pressable
-          style={({ pressed }) => [styles.button, { minHeight: buttonMinHeight }, pressed && styles.pressed]}
-          accessibilityRole="button"
-          onPress={() => router.back()}>
-          <Text style={styles.buttonText}>Quit</Text>
-        </Pressable>
+       <Pressable
+        style={({ pressed }) => [
+          styles.button,
+          { minHeight: buttonMinHeight },
+          pressed && styles.pressed,
+        ]}
+        accessibilityRole="button"
+        onPress={() => router.replace('/')}
+      >
+        <Text style={styles.buttonText}>Logout</Text>
+      </Pressable>
       </ScrollView>
 
       <View style={styles.footer}>
@@ -133,7 +144,7 @@ export default function ProfileScreen() {
             <Text style={styles.tabLabel}>Top</Text>
           </Pressable>
 
-          <Pressable style={styles.tabItem}>
+          <Pressable style={styles.tabItem} onPress={() => router.push('/favorites')}>
             <Ionicons name="bookmark" size={20} color="#8A8A8A" />
             <Text style={styles.tabLabel}>Favorites</Text>
           </Pressable>

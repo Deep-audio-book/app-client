@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React from 'react';
 import {
   FlatList,
@@ -14,6 +14,7 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
+
 
 const BASE_WIDTH = 390;
 const MAX_CONTENT_WIDTH = 560;
@@ -35,20 +36,68 @@ type Track = {
   isNowPlaying?: boolean;
 };
 
-const TRACKS: Track[] = [
-  { id: '1', number: 1, title: 'Burning', artist: 'Podval Caplella', explicit: true },
-  { id: '2', number: 2, title: 'Flashbacks', artist: 'Emika' },
-  { id: '3', number: 3, title: 'Renaissance', artist: 'Podval Caplella', isNowPlaying: true },
-  { id: '4', number: 4, title: 'Ivar\u2019s Revenge', artist: 'Danheim' },
-  { id: '5', number: 5, title: 'Urgent Siege', artist: 'Damned Anthem' },
-  { id: '6', number: 6, title: 'Urgent Siege', artist: 'Damned Anthem' },
-];
+type Playlist = {
+  id: string;
+  title: string;
+  trackCount: number;
+  duration: string;
+  tracks: Track[];
+};
 
-function TrackRow({ track }: { track: Track }) {
+// ---- Mock data source, keyed by playlist id ----
+// Replace this with a real API/DB call when ready (see fetch example at bottom of file).
+const PLAYLISTS: Record<string, Playlist> = {
+  '1': {
+    id: '1',
+    title: 'Ezhavathu Jenmam',
+    trackCount: 843,
+    duration: '23 hours',
+    tracks: [
+      { id: '1', number: 1, title: 'chapter 1', artist: 'Indra Soundarrajan', explicit: true },
+      { id: '2', number: 2, title: 'chapter 2', artist: 'Indra Soundarrajan' },
+      { id: '3', number: 3, title: 'chapter 3', artist: 'Indra Soundarrajan' },
+    ],
+  },
+  '2': {
+    id: '2',
+    title: 'Chill Vibes',
+    trackCount: 210,
+    duration: '9 hours',
+    tracks: [
+      { id: '1', number: 1, title: 'Sunset Drive', artist: 'Nightcall' },
+      { id: '2', number: 2, title: 'Slow Motion', artist: 'Emika' },
+      { id: '3', number: 3, title: 'Golden Hour', artist: 'Kiasmos', isNowPlaying: true },
+    ],
+  },
+  '3': {
+    id: '3',
+    title: 'Workout Mix',
+    trackCount: 95,
+    duration: '5 hours',
+    tracks: [
+      { id: '1', number: 1, title: 'Pump It Up', artist: 'DJ Force', explicit: true },
+      { id: '2', number: 2, title: 'Run Faster', artist: 'Cardio King' },
+    ],
+  },
+};
+
+const DEFAULT_PLAYLIST_ID = '1';
+
+type TrackRowProps = {
+  track: Track;
+  onPress?: () => void;
+};
+
+function TrackRow({ track, onPress }: TrackRowProps) {
   return (
     <Pressable
-      style={({ pressed }) => [styles.trackRow, pressed && styles.pressed]}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.trackRow,
+        pressed && styles.pressed,
+      ]}
       android_ripple={{ color: 'rgba(255,255,255,0.08)' }}>
+      
       <View style={styles.trackNumberBadge}>
         <Text style={styles.trackNumberText}>{track.number}</Text>
       </View>
@@ -58,21 +107,34 @@ function TrackRow({ track }: { track: Track }) {
           <Text style={styles.trackTitle} numberOfLines={1}>
             {track.title}
           </Text>
+
           {track.explicit && (
             <View style={styles.explicitBadge}>
               <Text style={styles.explicitBadgeText}>E</Text>
             </View>
           )}
         </View>
+
         <Text style={styles.trackArtist} numberOfLines={1}>
           {track.artist}
         </Text>
       </View>
 
-      {track.isNowPlaying && <Text style={styles.nowLabel}>NOW</Text>}
+      {track.isNowPlaying && (
+        <Text style={styles.nowLabel}>NOW</Text>
+      )}
 
-      <Pressable hitSlop={10} style={styles.trackMenuButton}>
-        <Ionicons name="ellipsis-horizontal" size={18} color="rgba(255,255,255,0.5)" />
+      <Pressable
+        hitSlop={10}
+        style={styles.trackMenuButton}
+        onPress={() => {
+          // menu action
+        }}>
+        <Ionicons
+          name="ellipsis-horizontal"
+          size={18}
+          color="rgba(255,255,255,0.5)"
+        />
       </Pressable>
     </Pressable>
   );
@@ -119,7 +181,7 @@ function BottomTabBar({ bottomInset, sideInset }: { bottomInset: number; sideIns
         <Ionicons name="disc-outline" size={22} color="#8A8A8A" />
         <Text style={styles.tabLabel}>Top</Text>
       </Pressable>
-      <Pressable style={styles.tabItem}>
+      <Pressable style={styles.tabItem} onPress={() => router.push('/favorites')}>
         <Ionicons name="bookmark-outline" size={22} color="#8A8A8A" />
         <Text style={styles.tabLabel}>Favorites</Text>
       </Pressable>
@@ -135,6 +197,16 @@ export default function PlaylistDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
+  const { id } = useLocalSearchParams<{ id?: string | string[] }>();
+
+  // id can arrive as a string or string[] depending on route matching — normalize it
+  const playlistId = Array.isArray(id) ? id[0] : id;
+
+  // Look up the playlist for this id, falling back to a default if not found
+  const playlist =
+    PLAYLISTS[playlistId ?? ''] ?? PLAYLISTS[DEFAULT_PLAYLIST_ID];
+
+  // console.log('Selected Playlist ID:', playlistId, '-> loaded:', playlist.title);
 
   const contentWidth = Math.min(width, MAX_CONTENT_WIDTH);
   const scale = clampValue(contentWidth / BASE_WIDTH, 0.85, 1.25);
@@ -179,12 +251,12 @@ export default function PlaylistDetailScreen() {
           ]}
         />
         <Text style={[styles.heroTitle, { fontSize: titleSize }]} numberOfLines={1}>
-          Renaissance
+          {playlist.title}
         </Text>
         <View style={styles.heroMetaRow}>
-          <Text style={styles.heroMetaText}>843 tracks</Text>
+          <Text style={styles.heroMetaText}>{playlist.trackCount} tracks</Text>
           <View style={styles.metaDot} />
-          <Text style={styles.heroMetaText}>23 hours</Text>
+          <Text style={styles.heroMetaText}>{playlist.duration}</Text>
         </View>
 
         <View style={styles.actionsRow}>
@@ -230,30 +302,38 @@ export default function PlaylistDetailScreen() {
   );
 
   return (
-    <View style={styles.container}>
-      <FlatList
-        data={TRACKS}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <TrackRow track={item} />}
-        ListHeaderComponent={header}
-        contentContainerStyle={[
-          {
-            maxWidth: MAX_CONTENT_WIDTH,
-            width: contentWidth,
-            alignSelf: 'center',
-            paddingHorizontal: horizontalPadding,
-            paddingBottom: footerHeight,
-          },
-        ]}
-        showsVerticalScrollIndicator={false}
-      />
+     <View style={styles.container}>
+    <FlatList
+      data={playlist.tracks}
+      keyExtractor={(item) => item.id}
+      renderItem={({ item }) => (
+        <TrackRow
+          track={item}
+          onPress={() => router.push('/player-standard')}
+        />
+      )}
+      ListHeaderComponent={header}
+      contentContainerStyle={[
+        {
+          maxWidth: MAX_CONTENT_WIDTH,
+          width: contentWidth,
+          alignSelf: 'center',
+          paddingHorizontal: horizontalPadding,
+          paddingBottom: footerHeight,
+        },
+      ]}
+      showsVerticalScrollIndicator={false}
+    />
 
-      <View style={styles.footer}>
-        <MiniPlayer sideInset={sideInset} />
-        <BottomTabBar bottomInset={insets.bottom} sideInset={sideInset} />
-      </View>
+    <View style={styles.footer}>
+      {/* <MiniPlayer sideInset={sideInset} /> */}
+      <BottomTabBar
+        bottomInset={insets.bottom}
+        sideInset={sideInset}
+      />
     </View>
-  );
+  </View>
+);
 }
 
 const styles = StyleSheet.create({

@@ -38,7 +38,7 @@ type Album = {
 };
 
 const ALBUMS: Album[] = [
-  { id: 'danheim-1', title: 'Danheim', artist: 'Podval Caplella', year: '2018', color: '#DCC646', explicit: true ,image:require('../assets/images/Album.jpeg')},
+  { id: 'danheim-1', title: 'Danheim', artist: 'Podval Caplella', year: '2018', color: '#DCC646', explicit: true ,image:require('../assets/images/album/1-1.png')},
   { id: 'flower-power', title: 'Flower Power', artist: 'Ray Charles', year: '2018', color: '#447B77',image:"" },
   { id: 'this-is-not-a-test', title: 'This Is Not A Test', artist: 'TobyMac', year: '2018', color: '#A05624', explicit: true,image:"" },
   { id: 'she-is-coming', title: 'SHE IS COMING', artist: 'Miley Cyrus', year: '2018', color: '#A62900',image:"" },
@@ -174,7 +174,7 @@ function BottomTabBar({ bottomInset, sideInset }: { bottomInset: number; sideIns
             Top
           </Text>
         </Pressable>
-        <Pressable style={styles.tabItem}>
+        <Pressable style={styles.tabItem}onPress={() => router.push('/favorites')}>
           <Ionicons name="bookmark" size={20} color="#8A8A8A" />
           <Text style={styles.tabLabel} maxFontSizeMultiplier={1.3}>
             Favorites
