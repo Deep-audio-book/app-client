@@ -52,6 +52,7 @@ export function SignInScreen() {
         await dispatch(loginUser({
           username: data.data.firstName,
           email: data.data.email,
+          userId:data.data.userId,
         }));
 
         // success aana mattum next page poganum

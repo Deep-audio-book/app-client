@@ -4,6 +4,7 @@ import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
 type UserData = {
   username: string;
   email: string;
+  userId: number;
 };
 
 type AuthState = {

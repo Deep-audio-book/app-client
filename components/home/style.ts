@@ -95,13 +95,14 @@ const styles = StyleSheet.create({
   },
 
   highlightsCard: {
-    marginTop: 20,
-    height: 112,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    paddingHorizontal: 20,
-    paddingTop: 22,
-  },
+  marginTop: 20,
+  height: 112,
+  borderRadius: 20,
+  backgroundColor: 'rgba(255,255,255,0.08)',
+  paddingHorizontal: 20,
+  paddingTop: 22,
+  overflow: 'visible', 
+},
 
   highlightsTitle: {
     color: '#FFFFFF',
@@ -266,12 +267,121 @@ const styles = StyleSheet.create({
       gap: 12,
     },
 
-genreAvatar: {
-  width:100,
-  height:100,
-  borderRadius:2,
-  backgroundColor: '#2A2A2A',
+
+
+socialRow: {
+  flex: 1,
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 20,
 },
+
+socialIconButton: {
+  width: 52,
+  height: 52,
+  borderRadius: 26,
+  alignItems: 'center',
+  justifyContent: 'center',
+  // backgroundColor ivlo வேணாம் - inline ah brand color varum ConnectWithUsSection la irunthu
+},
+
+//featured books box style 
+previewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // ---- Featured Books additions ----
+  highlightCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    overflow: 'hidden',
+    paddingVertical: 18,
+  },
+  highlightTitle: {
+    flexWrap: 'wrap',
+    fontSize: 20,
+    lineHeight: 25,
+    fontWeight: '700',
+    letterSpacing: -0.5,
+  },
+  highlightTile: {
+    position: 'absolute',
+    top: 0,
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  highlightTileShadow: {
+    shadowColor: '#000',
+    shadowOffset: { width: -2, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  gallerySlide: {
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 14,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    marginHorizontal: 4,
+  },
+  dotActive: {
+    backgroundColor: '#FFFFFF',
+    width: 18,
+  },
+  galleryHint: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 12,
+    marginTop: 10,
+  },
+//genre styles
+  genreAvatar: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    paddingTop: 12,
+  },
+
+  genreIconBox: {
+    width: 100,
+    height: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  genreName: {
+    marginTop: 8,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF', // background-ku etha color use pannunga
+    textAlign: 'center',
+    textTransform: 'capitalize',
+  },
 
 });
 
