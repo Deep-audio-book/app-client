@@ -113,48 +113,7 @@ export default function ProfileScreen() {
       </Pressable>
       </ScrollView>
 
-      <View style={styles.footer}>
-        <View style={styles.miniPlayer}>
-          <Pressable hitSlop={10} style={styles.miniPlayerExpand}>
-            <Ionicons name="chevron-up" size={16} color="rgba(255,255,255,0.5)" />
-          </Pressable>
-
-          <View style={styles.miniPlayerInfo}>
-            <Text style={styles.miniPlayerTitle}>Urgent Siege</Text>
-            <Text style={styles.miniPlayerArtist}>Damned Anthem</Text>
-          </View>
-
-          <Pressable hitSlop={10} style={styles.miniPlayerPause}>
-            <Ionicons name="pause" size={16} color="rgba(255,255,255,0.5)" />
-          </Pressable>
-
-          <View style={styles.miniPlayerProgressTrack}>
-            <View style={styles.miniPlayerProgressFill} />
-          </View>
-        </View>
-
-        <SafeAreaView edges={['bottom']} style={styles.tabBar}>
-          <Pressable style={styles.tabItem} onPress={() => router.push('/home')}>
-            <Ionicons name="home" size={22} color="#8A8A8A" />
-            <Text style={styles.tabLabel}>Home</Text>
-          </Pressable>
-
-          <Pressable style={styles.tabItem} onPress={() => router.push('/top-playlists')}>
-            <Ionicons name="stats-chart" size={20} color="#8A8A8A" />
-            <Text style={styles.tabLabel}>Top</Text>
-          </Pressable>
-
-          <Pressable style={styles.tabItem} onPress={() => router.push('/favorites')}>
-            <Ionicons name="bookmark" size={20} color="#8A8A8A" />
-            <Text style={styles.tabLabel}>Favorites</Text>
-          </Pressable>
-
-          <Pressable style={styles.tabItem}>
-            <Ionicons name="search" size={20} color="#8A8A8A" />
-            <Text style={styles.tabLabel}>Search</Text>
-          </Pressable>
-        </SafeAreaView>
-      </View>
+      
     </View>
   );
 }

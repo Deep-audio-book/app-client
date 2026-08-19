@@ -1,637 +1,1319 @@
 import axios from '@/axios.config';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from "expo-linear-gradient";
+import { router, useRouter } from "expo-router";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Image,
   Linking,
-  Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
+  StyleSheet,
   Text,
+  TouchableOpacity,
   View,
-  useWindowDimensions
-} from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { SvgUri } from 'react-native-svg';
-import { useAppSelector } from '../../utils/typedReduxHooks';
-import styles, {
-  BANNER_HEIGHT,
-  BASE_WIDTH,
-  MAX_CONTENT_WIDTH
-} from './style';
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Circle, Path, Rect, SvgUri } from "react-native-svg";
+import styles, { BED_COVERS, COLORS, COVERS } from "./style";
 
-function clampValue(value: number, min: number, max: number) {
-  if (value < min) return min;
-  if (value > max) return max;
-  return value;
-}
+/* ---------- API types ---------- */
 
-
-function isSvgUrl(url?: string | null) {
-  return !!url && url.toLowerCase().endsWith('.svg');
-}
-
-// ---------- Backend response types ----------
-type Story = {
+interface ApiStory {
   id: number;
-  cover: string;
+  cover: string | null;
   title: string;
   author: string;
+  narrator: string | null;
   genre: string | null;
-  timeSec: string;
+  story_duration: string | null; // backend sends a pre-formatted duration string, e.g. "2 hr 20 mins"
+  rating: number;
   listens: number;
   like: boolean;
   dislike: boolean;
   wishlisted: boolean;
-};
+  view_type: string;
+}
 
-type Genre = {
+interface ApiAuthor {
+  id: number;
+  name: string;
+  avatar: string | null;
+  storyCount: number;
+}
+
+interface ApiGenre {
   id: number;
   name: string;
   icon?: string | null;
   background?: string | null;
-};
+}
 
-type Author = {
+interface ApiTrendingGenre {
   id: number;
   name: string;
-  avatar: string;
-  storyCount: number;
-};
+}
 
-type Book = {
-  story_id: number | null;
-  image: string;
-};
+interface ConnectLinks {
+  youtube?: string;
+  facebook?: string;
+  instagram?: string;
+  website?: string;
+  twitter?: string;
+}
+
+/*
+ * Backend hero response:
+ *
+ * {
+ *   "type": "hero",
+ *   "mode": "explore",
+ *   "data": {
+ *      ...
+ *   }
+ * }
+ *
+ * OR
+ *
+ * {
+ *   "type": "hero",
+ *   "mode": "resume",
+ *   "data": {
+ *      ...
+ *   }
+ * }
+ */
+
+type HeroMode = "explore" | "resume";
+
+interface HeroSection {
+  type: "hero";
+  mode: HeroMode;
+  data: ApiStory;
+}
 
 type Section =
-  | { type: 'trending-genres'; data: { id: number; name: string }[] }
-  | { type: 'featured-books'; title: string; data: Book[] }
-  | { type: 'story-row'; title: string; data: Story[] }
-  | { type: 'author-row'; title: string; data: Author[] }
-  | { type: 'genre-grid'; title: string; data: Genre[] }
-  | { type: 'connect-with-us'; data: Record<string, string> };
+  | { type: "greeting"; title: string; subtitle: string }
+  | HeroSection
+  | { type: "trending-genres"; data: ApiTrendingGenre[] }
+  | { type: "featured-books"; title: string; data: ApiStory[]; view_type: string }
+  | {
+      type: "story-row";
+      title: string;
+      data: ApiStory[];
+      view_type: string;
+      variant?: "default" | "bed";
+    }
+  | { type: "author-row"; title: string; data: ApiAuthor[] }
+  | { type: "genre-grid"; title: string; data: ApiGenre[] }
+  | { type: "connect-with-us"; data: ConnectLinks };
 
-// ---------- Presentational pieces ----------
-function CategoryChip({ label }: { label: string }) {
+interface IconProps {
+  size?: number;
+  color?: string;
+}
+
+/* ---------- icons ---------- */
+
+const BellIcon = ({ size = 15, color = COLORS.text1 }: IconProps) => (
+  <Svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth={2}
+  >
+    <Path d="M6 8a6 6 0 0112 0c0 4 1.5 5.5 2 6.5H4c.5-1 2-2.5 2-6.5Z" />
+    <Path d="M9.5 18a2.5 2.5 0 005 0" />
+  </Svg>
+);
+
+const ClockIcon = ({ size = 11, color = COLORS.lavDim }: IconProps) => (
+  <Svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth={2}
+  >
+    <Circle cx={12} cy={12} r={9} />
+    <Path d="M12 7v5l3 3" />
+  </Svg>
+);
+
+const PlayIcon = ({ size = 10, color = "#241b2c" }: IconProps) => (
+  <Svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill={color}
+  >
+    <Path d="M8 5v14l11-7z" />
+  </Svg>
+);
+
+const BookIcon = ({ size = 8, color = "#fff" }: IconProps) => (
+  <Svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill={color}
+  >
+    <Path d="M12 3a4 4 0 00-4 4v5a4 4 0 008 0V7a4 4 0 00-4-4Z" />
+    <Path d="M6 11v1a6 6 0 0012 0v-1M12 18v3" />
+  </Svg>
+);
+
+const MoonIcon = ({ size = 16, color = COLORS.lav }: IconProps) => (
+  <Svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill={color}
+  >
+    <Path d="M20 14.5A8.5 8.5 0 119.5 4a7 7 0 1010.5 10.5Z" />
+  </Svg>
+);
+
+const StarIcon = ({ size = 11, color = COLORS.gold }: IconProps) => (
+  <Svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill={color}
+  >
+    <Path d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6-5.9-3.3-5.9 3.3 1.3-6.6-4.9-4.6 6.6-.8Z" />
+  </Svg>
+);
+
+const FacebookIcon = ({ size = 11, color = COLORS.text2 }: IconProps) => (
+  <Svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth={2}
+  >
+    <Path d="M14 9h2V6h-2c-1.7 0-3 1.3-3 3v2H9v3h2v6h3v-6h2.2l.8-3H14V9Z" />
+  </Svg>
+);
+
+const InstagramIcon = ({ size = 11, color = COLORS.text2 }: IconProps) => (
+  <Svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth={2}
+  >
+    <Rect x={4} y={4} width={16} height={16} rx={4} />
+    <Circle cx={12} cy={12} r={3.2} />
+    <Circle
+      cx={16.6}
+      cy={7.4}
+      r={0.6}
+      fill={color}
+      stroke="none"
+    />
+  </Svg>
+);
+
+const WebsiteIcon = ({ size = 11, color = COLORS.text2 }: IconProps) => (
+  <Svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth={2}
+  >
+    <Circle cx={12} cy={12} r={9} />
+    <Path d="M3 12h18M12 3c2.5 2.7 2.5 15.3 0 18M12 3c-2.5 2.7-2.5 15.3 0 18" />
+  </Svg>
+);
+
+const TwitterIcon = ({ size = 11, color = COLORS.text2 }: IconProps) => (
+  <Svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth={2}
+  >
+    <Path d="M21 5.3c-.7.4-1.5.6-2.3.8a3.6 3.6 0 00-6.2 3.3A10.4 10.4 0 014 4.9a3.6 3.6 0 001.1 4.8c-.6 0-1.2-.2-1.7-.4 0 1.7 1.2 3.2 2.9 3.6-.6.2-1.2.2-1.8.1a3.6 3.6 0 003.4 2.5A10.5 10.5 0 013 17.4a10.9 10.9 0 006 1.7c7 0 11-6 11-11.2v-.5c.7-.5 1.4-1.2 1.9-2z" />
+  </Svg>
+);
+
+const YoutubeIcon = ({ size = 11, color = COLORS.text2 }: IconProps) => (
+  <Svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth={2}
+  >
+    <Rect x={3} y={6} width={18} height={12} rx={3} />
+    <Path
+      d="M11 9.5l4 2.5-4 2.5z"
+      fill={color}
+      stroke="none"
+    />
+  </Svg>
+);
+
+/* ---------- helpers ---------- */
+
+function isSvgUrl(url: string): boolean {
+  return url.toLowerCase().split("?")[0].endsWith(".svg");
+}
+
+// Backend now sends a pre-formatted duration string (e.g. "2 hr 20 mins"),
+// so we just trim/guard it instead of doing seconds math.
+function formatDuration(story_duration?: string | null): string {
+  return story_duration?.trim() || "";
+}
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+
+  const initials = parts
+    .slice(0, 2)
+    .map((p) => p.charAt(0).toUpperCase())
+    .join("");
+
+  return initials || "?";
+}
+
+// Returns the first letter of the last name in a greeting string, or "U" if not found.
+function getInitialFromGreeting(title?: string): string {
+  if (!title) return "U";
+
+  const match = title.match(/,\s*([^.]+)\.?$/);
+  const name = match ? match[1].trim() : title;
+
+  return name.charAt(0).toUpperCase() || "U";
+}
+
+/* ---------- rating badge ---------- */
+
+const RatingBadge: React.FC<{ rating?: number; size?: number }> = ({
+  rating,
+  size = 11,
+}) => {
+  if (!rating) return null;
+
   return (
-    <View style={styles.categoryChip}>
-      <Text style={styles.categoryChipText} numberOfLines={1}>
-        #{label}
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 3,
+      }}
+    >
+      <StarIcon size={size} />
+      <Text style={styles.cardFootText}>
+        {rating.toFixed(1)}
       </Text>
     </View>
   );
-}
+};
 
-function StoryCard({ item, variant = 'trending' }: { item: Story; variant?: 'trending' | 'release' }) {
-  const cardStyle = variant === 'trending' ? styles.trendingCard : styles.ReleaseCard;
-  const artworkStyle = variant === 'trending' ? styles.trendingArtwork : styles.ReleaseArtwork;
+/* ---------- story row ---------- */
+
+const WaveRule = () => (
+  <View
+    style={{
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: "rgba(255,255,255,0.12)",
+      marginVertical:4,
+      width: "100%",
+    }}
+  />
+);
+
+const StoryCard: React.FC<{
+  story: ApiStory;
+  fallbackBg: [string, string];
+}> = ({ story, fallbackBg }) => {
+  const duration = formatDuration(story.story_duration);
+
   return (
-    <Pressable style={cardStyle}>
-      <View style={artworkStyle}>
-        <Image
-          source={{ uri: item.cover }}
-          style={{ width: '100%', height: '100%', borderRadius: 8 }}
-          resizeMode="cover"
-        />
-        <Pressable hitSlop={6} style={styles.downloadBadge}>
-          <Ionicons name="cloud-download-outline" size={15} color="#FFFFFF" />
-        </Pressable>
+    <TouchableOpacity
+      style={styles.card}
+      activeOpacity={0.85}
+    >
+      <View style={styles.cardCover}>
+        {story.cover ? (
+          <Image
+            source={{ uri: story.cover }}
+            style={StyleSheet.absoluteFillObject}
+            resizeMode="cover"
+          />
+        ) : (
+          <LinearGradient
+            colors={fallbackBg}
+            style={StyleSheet.absoluteFillObject}
+          />
+        )}
+
+        <View style={styles.ribbonCard}>
+          <BookIcon size={7} />
+          <Text style={styles.ribbonText}>Audio</Text>
+        </View>
       </View>
-      <Text style={styles.trendingTitle} numberOfLines={1}>
-        {item.title}
-      </Text>
-      <Text style={styles.trendingAuthor} numberOfLines={1}>
-        {item.author}
-      </Text>
-    </Pressable>
-  );
-}
 
-function AuthorAvatar({ item }: { item: Author }) {
+      <Text
+        style={styles.cardTitle}
+        numberOfLines={2}
+      >
+        {story.title}
+      </Text>
+
+      <Text
+        style={styles.cardNarrator}
+        numberOfLines={1}
+      >
+        {story.narrator || story.author}
+      </Text>
+
+      <View
+        style={[
+          styles.cardFoot,
+          {
+            justifyContent: "space-between",
+          },
+        ]}
+      >
+        <RatingBadge rating={story.rating} size={10} />
+
+        {duration ? (
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+            }}
+          >
+            <ClockIcon size={10} />
+            <Text style={styles.cardFootText}>
+              {" "}
+              {duration}
+            </Text>
+          </View>
+        ) : (
+          <Text style={styles.cardFootText}>
+            {story.listens} listens
+          </Text>
+        )}
+      </View>
+
+      {!!story.genre && (
+        <Text style={styles.cardGenre}>
+          {story.genre}
+        </Text>
+      )}
+    </TouchableOpacity>
+  );
+};
+
+const StoryRow: React.FC<{
+  title: string;
+  stories: ApiStory[];
+  view_type: string;
+}> = ({ title, stories, view_type }) => {
+  if (!stories.length) return null;
+
   return (
-    <Pressable style={styles.authorAvatar}>
-      <Image
-        source={{ uri: item.avatar }}
-        style={{ width: '100%', height: '100%', borderRadius: 999 }}
-        resizeMode="cover"
-      />
-    </Pressable>
+    <View style={styles.rowSec}>
+      <WaveRule />
+
+      <View style={styles.rowHead}>
+        <Text style={styles.rowTitle}>{title}</Text>
+
+        <TouchableOpacity
+  onPress={() => {
+    // console.log(
+    //   "View all pressed for title:",
+    //   title,
+    //   "view_type:",
+    //   view_type
+    // );
+
+    router.push({
+      pathname: "/storyView",
+      params: {
+        title,
+        view_type,
+        stories: JSON.stringify(stories),
+      },
+    });
+  }}
+  accessibilityRole="button"
+  accessibilityLabel={`View all ${title}`}
+>
+  <Text style={styles.viewAll}>View all</Text>
+</TouchableOpacity>
+      </View>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.rowScroll}
+      >
+        {stories.map((story, i) => (
+          <StoryCard
+            key={`${story.id}-${i}`}
+            story={story}
+            fallbackBg={COVERS[i % COVERS.length]}
+          />
+        ))}
+      </ScrollView>
+    </View>
   );
-}
+};
 
+/* ---------- Perfect Before Bed ---------- */
 
-function GenreTile({ item }: { item: Genre }) {
+const PerfectBeforeBedSection: React.FC<{
+  title: string;
+  stories: ApiStory[];
+  view_type: string;
+}> = ({ title, stories, view_type }) => {
+  if (!stories.length) return null;
+
+  return (
+    <View style={styles.bedSection}>
+      <View style={styles.bedHeader}>
+        <View style={styles.bedIconWrap}>
+          <MoonIcon />
+        </View>
+
+        <View style={styles.bedHeaderText}>
+          <Text style={styles.bedTitle}>
+            {title}
+          </Text>
+
+          <Text style={styles.bedSubtitle}>
+            Soft, slow stories to wind down with
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          onPress={() => {
+            router.push({
+              pathname: "/storyView",
+              params: {
+                title,
+                view_type,
+                stories: JSON.stringify(stories),
+              },
+            });
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={`View all ${title}`}
+        >
+          <Text style={styles.viewAll}>View all</Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.bedRowScroll}
+      >
+        {stories.map((story, i) => {
+          const duration = formatDuration(
+            story.story_duration
+          );
+
+          return (
+            <View
+              style={styles.bedCard}
+              key={`${story.id}-${i}`}
+            >
+              <View style={styles.bedCover}>
+                {story.cover ? (
+                  <Image
+                    source={{ uri: story.cover }}
+                    style={StyleSheet.absoluteFillObject}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <LinearGradient
+                    colors={
+                      BED_COVERS[
+                        i % BED_COVERS.length
+                      ]
+                    }
+                    style={StyleSheet.absoluteFillObject}
+                  />
+                )}
+
+                <LinearGradient
+                  colors={[
+                    "rgba(10,8,20,0)",
+                    "rgba(10,8,20,0.7)",
+                  ]}
+                  style={StyleSheet.absoluteFillObject}
+                />
+
+                <Text
+                  style={[
+                    styles.bedCoverTitle,
+                    { color: "#fff" },
+                  ]}
+                  numberOfLines={2}
+                >
+                  {story.title}
+                </Text>
+
+                {!!duration && (
+                  <View style={styles.bedDurationBadge}>
+                    <Text style={styles.bedDurationText}>
+                      {duration}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <Text
+                style={styles.bedCardTitle}
+                numberOfLines={1}
+              >
+                {story.title}
+              </Text>
+
+              <Text
+                style={styles.bedCardNarrator}
+                numberOfLines={1}
+              >
+                {story.narrator || story.author}
+              </Text>
+
+              <RatingBadge rating={story.rating} size={9} />
+            </View>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+};
+
+/* ---------- trending genre chips ---------- */
+
+const TrendingGenreChips: React.FC<{
+  genres: ApiTrendingGenre[];
+}> = ({ genres }) => {
+  if (!genres.length) return null;
+
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.chipRow}
+    >
+      {genres.map((g) => (
+        <View
+          style={styles.chip}
+          key={g.id}
+        >
+          <Text style={styles.chipText}>
+            #{g.name}
+          </Text>
+        </View>
+      ))}
+    </ScrollView>
+  );
+};
+
+/* ---------- author row ---------- */
+
+const AuthorRow: React.FC<{
+  title: string;
+  authors: ApiAuthor[];
+}> = ({ title, authors }) => {
+  if (!authors.length) return null;
+
+  return (
+    <View style={styles.tertiary}>
+      <View style={styles.tertiaryHead}>
+        <Text style={styles.tertiaryTitle}>
+          {title}
+        </Text>
+
+        <TouchableOpacity
+          onPress={() => router.push("/author")}
+        >
+          <Text style={styles.viewAll}>
+            View all
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+      >
+        <View style={styles.authorRow}>
+          {authors.map((author) => (
+            <TouchableOpacity
+              key={author.id}
+              style={styles.authorChip}
+              activeOpacity={0.85}
+            >
+              {author.avatar ? (
+                <Image
+                  source={{ uri: author.avatar }}
+                  style={styles.authorAvatarImg}
+                  resizeMode="cover"
+                />
+              ) : (
+                <Text style={styles.authorChipText}>
+                  {getInitials(author.name)}
+                </Text>
+              )}
+            </TouchableOpacity>
+          ))}
+        </View>
+      </ScrollView>
+    </View>
+  );
+};
+
+/* ---------- genre grid ---------- */
+
+const SectionHeader: React.FC<{
+  title: string;
+  onViewAll: () => void;
+}> = ({ title, onViewAll }) => (
+  <View style={styles.sectionHeader}>
+    <Text style={styles.sectionTitle}>
+      {title}
+    </Text>
+
+    <TouchableOpacity
+      onPress={onViewAll}
+      accessibilityRole="button"
+      accessibilityLabel={`View all ${title}`}
+    >
+      <Text style={styles.viewAll}>
+        View all
+      </Text>
+    </TouchableOpacity>
+  </View>
+);
+
+function GenreTile({
+  item,
+}: {
+  item: ApiGenre;
+}) {
   return (
     <Pressable style={styles.genreAvatar}>
       <View style={styles.genreIconBox}>
         {item.icon ? (
           isSvgUrl(item.icon) ? (
-            <SvgUri width={100} height={100} uri={item.icon} />
+            <SvgUri
+              width={100}
+              height={100}
+              uri={item.icon}
+            />
           ) : (
             <Image
               source={{ uri: item.icon }}
-              style={{ width: 100, height: 100 }}
+              style={{
+                width: 100,
+                height: 100,
+              }}
               resizeMode="contain"
             />
           )
         ) : null}
-      </View>
 
-      <Text style={styles.genreName}>
-        {item.name}
-      </Text>
+        <Text
+          style={styles.genreName}
+          numberOfLines={1}
+        >
+          {item.name}
+        </Text>
+      </View>
     </Pressable>
   );
 }
 
-// ---------- Section renderers ----------
-function SectionHeader({ title, onViewAll }: { title: string; onViewAll?: () => void }) {
-  return (
-    <View style={styles.sectionHeader}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      {onViewAll ? (
-        <Pressable
-          onPress={onViewAll}
-          style={({ pressed }) => [styles.viewAllButton, pressed && styles.pressed]}
-        >
-          <Text style={styles.viewAllText}>View All</Text>
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
-function StoryRowSection({
-  section,
-  horizontalPadding,
-  variant = 'trending',
-}: {
-  section: { title: string; data: Story[] };
-  horizontalPadding: number;
-  variant?: 'trending' | 'release';
-}) {
-  const router = useRouter();
-  if (!section.data?.length) return null; // empty data -> section hide
-  return (
-    <View style={[styles.section, { paddingHorizontal: horizontalPadding }]}>
-      <SectionHeader title={section.title} onViewAll={() => router.push('/top-playlists')} />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trendingRow}>
-        {section.data.map((item) => (
-          <StoryCard key={item.id} item={item} variant={variant} />
-        ))}
-      </ScrollView>
-    </View>
-  );
-}
-
-function AuthorRowSection({
-  section,
-  horizontalPadding,
-}: {
-  section: { title: string; data: Author[] };
-  horizontalPadding: number;
-}) {
-  const router = useRouter();
-  if (!section.data?.length) return null;
-  return (
-    <View style={[styles.section, { paddingHorizontal: horizontalPadding }]}>
-      <SectionHeader title={section.title} onViewAll={() => router.push('/top-playlists')} />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.authorsRow}>
-        {section.data.map((item) => (
-          <AuthorAvatar key={item.id} item={item} />
-        ))}
-      </ScrollView>
-    </View>
-  );
-}
-
 function GenreGridSection({
-  section,
-  horizontalPadding,
+  title,
+  data,
 }: {
-  section: { title: string; data: Genre[] };
-  horizontalPadding: number;
+  title: string;
+  data: ApiGenre[];
 }) {
   const router = useRouter();
-  if (!section.data?.length) return null;
+
+  if (!data.length) return null;
 
   return (
-    <View style={[styles.section, { paddingHorizontal: horizontalPadding }]}>
-      <SectionHeader title={section.title} onViewAll={() => router.push('/top-playlists')} />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.genreRow}>
-        {section.data.map((item) => (
-          <GenreTile key={item.id} item={item} />
+    <View
+      style={[
+        styles.section,
+        {
+          paddingHorizontal: 18,
+        },
+      ]}
+    >
+      <SectionHeader
+        title={title}
+        onViewAll={() => router.push("/genre")}
+      />
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.genreRow}
+      >
+        {data.map((item) => (
+          <GenreTile
+            key={item.id}
+            item={item}
+          />
         ))}
       </ScrollView>
     </View>
   );
 }
 
-// ---------- Featured Books (matches requested tile-offset pattern) ----------
-const HIGHLIGHT_TILE_COLORS = ['#929292', '#A6A6A6', '#D6D6D6'];
+/* ---------- connect with us footer ---------- */
 
-function FeaturedBooksSection({
-  section,
-  horizontalPadding,
-}: {
-  section: { title: string; data: Book[] };
-  horizontalPadding: number;
-}) {
-  const router = useRouter();
-  const { width } = useWindowDimensions();
+const SOCIAL_ICON_MAP: Record<
+  keyof ConnectLinks,
+  React.FC<IconProps>
+> = {
+  youtube: YoutubeIcon,
+  facebook: FacebookIcon,
+  instagram: InstagramIcon,
+  website: WebsiteIcon,
+  twitter: TwitterIcon,
+};
 
-  const [galleryVisible, setGalleryVisible] = useState(false);
-  const [galleryIndex, setGalleryIndex] = useState(0);
-  const [activeIndex, setActiveIndex] = useState(0);
-  const galleryScrollRef = useRef<ScrollView>(null);
+const ConnectFooter: React.FC<{
+  links?: ConnectLinks;
+}> = ({ links }) => {
+  if (!links) return null;
 
-  if (!section.data?.length) return null;
+  const entries = (
+    Object.keys(SOCIAL_ICON_MAP) as (keyof ConnectLinks)[]
+  ).filter((k) => !!links[k]);
 
-  const books = section.data.slice(0, 3);
-
-  const contentWidth = Math.min(width, MAX_CONTENT_WIDTH);
-
-  const highlightCardHorizontalPadding = 20;
-  const highlightStackGap = 16;
-  const cardWidth = contentWidth - horizontalPadding * 2;
-
-  // computed sizes — matches home.tsx (2nd file) Featured Books sizing
-  const highlightInnerWidth = cardWidth - highlightCardHorizontalPadding * 2;
-  const highlightTitleWidth = clampValue(highlightInnerWidth * 0.34, 92, 120);
-  const highlightStackWidth = Math.max(highlightInnerWidth - highlightTitleWidth - highlightStackGap, 96);
-  const highlightTileScale = highlightStackWidth / 201;
-  const highlightTileSize = 108 * highlightTileScale;
-  const highlightTileOffsets = [0, 42 * highlightTileScale, 93 * highlightTileScale];
-
-  const openGallery = (index: number) => {
-    setGalleryIndex(index);
-    setActiveIndex(index);
-    setGalleryVisible(true);
-  };
-
-  const closeGallery = () => setGalleryVisible(false);
-
-  const handleGalleryScrollEnd = (e: any) => {
-    const x = e.nativeEvent.contentOffset.x;
-    const index = Math.round(x / contentWidth);
-    if (index !== activeIndex) setActiveIndex(index);
-  };
-
-  const goToStory = (book: Book) => {
-    if (!book.story_id) return; // banner-only image, no linked story
-    setGalleryVisible(false);
-    // TODO: confirm this matches your actual story detail route
-    router.push(`/story/${book.story_id}` as any);
-  };
+  if (!entries.length) return null;
 
   return (
-    <>
-      <View
-        style={[
-          styles.highlightsCard,
-          styles.highlightCard,
-          {
-            marginHorizontal: horizontalPadding,
-            paddingHorizontal: highlightCardHorizontalPadding,
-          },
-        ]}
-      >
-        <Text
-          style={[styles.highlightsTitle, styles.highlightTitle, { width: highlightTitleWidth }]}
-          numberOfLines={2}
-        >
-          {section.title}
+    <View style={styles.footer}>
+      <View style={styles.footerRow}>
+        <Text style={styles.footerLabel}>
+          Connect with us
         </Text>
 
-        <Pressable
-          onPress={() => openGallery(0)}
-          style={{ width: highlightStackWidth, height: highlightTileSize }}
-        >
-          {books.map((book, index) => (
-            <Pressable
-              key={`featured-book-${index}-${book.story_id ?? 'banner'}`}
-              onPress={() => openGallery(index)}
-              style={[
-                styles.highlightTile,
-                {
-                  left: highlightTileOffsets[index],
-                  width: highlightTileSize,
-                  height: highlightTileSize,
-                  backgroundColor: HIGHLIGHT_TILE_COLORS[index],
-                  zIndex: books.length - index,
-                },
-                index > 0 && styles.highlightTileShadow,
-              ]}
-            >
-              {book.image ? (
-                <Image
-                  source={{ uri: book.image }}
-                  style={{ width: '100%', height: '100%', borderRadius: 10.5 }}
-                  resizeMode="cover"
-                />
-              ) : null}
-            </Pressable>
-          ))}
-        </Pressable>
-      </View>
-
-      {/* Fullscreen horizontal swipeable gallery */}
-      <Modal
-        visible={galleryVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={closeGallery}
-        statusBarTranslucent
-      >
-        <View style={styles.previewOverlay}>
-          <Pressable onPress={closeGallery} hitSlop={12} style={styles.closeButton}>
-            <Ionicons name="close" size={26} color="#FFFFFF" />
-          </Pressable>
-
-          <ScrollView
-            ref={galleryScrollRef}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            onMomentumScrollEnd={handleGalleryScrollEnd}
-            contentOffset={{ x: galleryIndex * contentWidth, y: 0 }}
-            style={{ width: contentWidth }}
-          >
-            {books.map((book, index) => (
-              <Pressable
-                key={`gallery-${index}-${book.story_id ?? 'banner'}`}
-                style={[styles.gallerySlide, { width: contentWidth }]}
-                onPress={() => goToStory(book)}
-              >
-                {book.image ? (
-                  <Image
-                    source={{ uri: book.image }}
-                    style={{ width: '92%', height: '70%' }}
-                    resizeMode="contain"
-                  />
-                ) : (
-                  <View
-                    style={{
-                      width: '80%',
-                      height: '60%',
-                      borderRadius: 16,
-                      backgroundColor: HIGHLIGHT_TILE_COLORS[index] ?? '#D6D6D6',
-                    }}
-                  />
-                )}
-              </Pressable>
-            ))}
-          </ScrollView>
-
-          <View style={styles.dotsRow}>
-            {books.map((_, index) => (
-              <View
-                key={`dot-${index}`}
-                style={[styles.dot, index === activeIndex && styles.dotActive]}
-              />
-            ))}
-          </View>
-
-          {books[activeIndex]?.story_id ? (
-            <Text style={styles.galleryHint}>Tap the image to open this story</Text>
-          ) : null}
-        </View>
-      </Modal>
-    </>
-  );
-}
-
-function TrendingGenresRow({
-  section,
-  horizontalPadding,
-}: {
-  section: { data: { id: number; name: string }[] };
-  horizontalPadding: number;
-}) {
-  if (!section.data?.length) return null;
-  return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={styles.categoriesScroll}
-      contentContainerStyle={[styles.categoriesContent, { paddingHorizontal: horizontalPadding }]}
-    >
-      {section.data.map((genre) => (
-        <CategoryChip key={genre.id} label={genre.name} />
-      ))}
-    </ScrollView>
-  );
-}
-
-// key -> Ionicons name mapping
-const SOCIAL_ICON_MAP: Record<string, keyof typeof Ionicons.glyphMap> = {
-  youtube: 'logo-youtube',
-  facebook: 'logo-facebook',
-  instagram: 'logo-instagram',
-  twitter: 'logo-twitter',
-  website: 'globe-outline',
-  linkedin: 'logo-linkedin',
-  whatsapp: 'logo-whatsapp',
-};
-
-// key -> background brand color (icon white/dark, contrast ku match)
-const SOCIAL_BG_MAP: Record<string, string> = {
-  youtube: '#FF0000',
-  facebook: '#1877F2',
-  instagram: '#C13584',
-  twitter: '#1DA1F2',
-  website: '#F5C518',
-  linkedin: '#0A66C2',
-  whatsapp: '#25D366',
-};
-
-function ConnectWithUsSection({
-  section,
-  horizontalPadding,
-}: {
-  section: { data: Record<string, string> };
-  horizontalPadding: number;
-}) {
-  const links = Object.entries(section.data ?? {}).filter(([, url]) => !!url);
-  if (!links.length) return null;
-
-  const handlePress = async (url: string) => {
-    try {
-      const supported = await Linking.canOpenURL(url);
-      if (supported) {
-        await Linking.openURL(url);
-      }
-    } catch (err) {
-      console.log('Failed to open link:', err);
-    }
-  };
-
-  return (
-    <View style={[styles.section, { paddingHorizontal: horizontalPadding }]}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Connect With Us</Text>
-      </View>
-      <View style={styles.recommendationCard}>
         <View style={styles.socialRow}>
-          {links.map(([key, url]) => {
-            const iconName = SOCIAL_ICON_MAP[key] ?? 'link-outline';
-            const bgColor = SOCIAL_BG_MAP[key] ?? '#F5C518';
-            const iconColor = key === 'website' ? '#1A1A1A' : '#FFFFFF';
+          {entries.map((key) => {
+            const Icon = SOCIAL_ICON_MAP[key];
+            const url = links[key] as string;
+
             return (
-              <Pressable
+              <TouchableOpacity
                 key={key}
-                onPress={() => handlePress(url)}
-                style={({ pressed }) => [
-                  styles.socialIconButton,
-                  { backgroundColor: bgColor },
-                  pressed && styles.pressed,
-                ]}
+                style={styles.social}
+                accessibilityRole="button"
+                accessibilityLabel={key}
+                onPress={() =>
+                  Linking.openURL(url)
+                }
               >
-                <Ionicons name={iconName} size={24} color={iconColor} />
-              </Pressable>
+                <Icon />
+              </TouchableOpacity>
             );
           })}
         </View>
       </View>
+
+      <Text style={styles.footerCopy}>
+        © {new Date().getFullYear()} Deep Audiobooks.
+        Stories worth hearing.
+      </Text>
     </View>
   );
+};
+
+/* ---------- section dispatcher ---------- */
+
+function renderSection(
+  section: Section,
+  index: number
+): React.ReactNode {
+  switch (section.type) {
+    case "trending-genres":
+      return (
+        <TrendingGenreChips
+          key={`chips-${index}`}
+          genres={section.data}
+        />
+      );
+
+    case "featured-books":
+    case "story-row": {
+      const variant =
+        section.type === "story-row"
+          ? section.variant
+          : undefined;
+
+      const isBed =
+        variant === "bed" ||
+        section.title
+          ?.trim()
+          .toLowerCase() ===
+          "perfect before bed";
+
+      if (isBed) {
+        return (
+          <PerfectBeforeBedSection
+            key={`${section.type}-${index}`}
+            title={section.title}
+            stories={section.data}
+            view_type={section.view_type}
+          />
+        );
+      }
+
+      return (
+        <StoryRow
+          key={`${section.type}-${index}`}
+          title={section.title}
+          stories={section.data}
+          view_type={section.view_type}
+        />
+      );
+    }
+
+    case "author-row":
+      return (
+        <AuthorRow
+          key={`author-${index}`}
+          title={section.title}
+          authors={section.data}
+        />
+      );
+
+    case "genre-grid":
+      return (
+        <GenreGridSection
+          key={`genres-${index}`}
+          title={section.title}
+          data={section.data}
+        />
+      );
+
+    // greeting, hero and connect-with-us
+    // are rendered separately.
+    default:
+      return null;
+  }
 }
 
-// ---------- Main screen ----------
-export default function DiscoverScreen() {
-  const router = useRouter();
+/* ---------- main component ---------- */
+
+const DeepAudiobooksHome: React.FC = () => {
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
-  const user = useAppSelector((state) => state.auth.user);
-
-  const contentWidth = Math.min(width, MAX_CONTENT_WIDTH);
-  const scale = clampValue(contentWidth / BASE_WIDTH, 0.85, 1.2);
-  const horizontalPadding = Math.round(24 * scale);
-  const footerHeight = 62 + insets.bottom;
-
   const [sections, setSections] = useState<Section[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] =
+    useState(false);
+  const [error, setError] =
+    useState<string | null>(null);
 
-  const fetchDiscoverData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const fetchDiscoverData = useCallback(
+    async (isPullRefresh = false) => {
+      try {
+        if (isPullRefresh) {
+          setRefreshing(true);
 
-      const { data } = await axios.post('/', {
-        method: 'getHomepageData',
-      });
+          Haptics.impactAsync(
+            Haptics.ImpactFeedbackStyle.Light
+          );
+        } else {
+          setLoading(true);
+        }
 
-      if (data.statusCode === 200) {
-        setSections(data.data ?? []);
-      } else {
-        setError(data.msg || 'Failed to load discover data');
+        setError(null);
+
+        const { data } = await axios.post("/", {
+          method: "getHomepageData",
+        });
+
+        if (data.statusCode === 200) {
+          setSections(data.data ?? []);
+        } else {
+          setError(
+            data.msg ||
+              "Failed to load explore data"
+          );
+        }
+      } catch (err: any) {
+        console.log(
+          "Error code:",
+          err.code
+        );
+
+        console.log(
+          "Error message:",
+          err.message
+        );
+
+        console.log(
+          "Error response:",
+          err.response
+        );
+
+        setError(
+          "Something went wrong. Please try again."
+        );
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
-    } catch (error: any) {
-      console.log('Error code:', error.code);
-      console.log('Error message:', error.message);
-      console.log('Error response:', error.response);
-      setError('Something went wrong. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    },
+    []
+  );
+
+  const onPullRefresh = useCallback(() => {
+    fetchDiscoverData(true);
+  }, [fetchDiscoverData]);
 
   useEffect(() => {
     fetchDiscoverData();
   }, [fetchDiscoverData]);
 
-  const renderSection = (section: Section, index: number) => {
-    switch (section.type) {
-      case 'trending-genres':
-        return <TrendingGenresRow key={index} section={section} horizontalPadding={horizontalPadding} />;
-      case 'featured-books':
-        return <FeaturedBooksSection key={index} section={section} horizontalPadding={horizontalPadding} />;
-      case 'story-row':
-        return (
-          <StoryRowSection
-            key={index}
-            section={section}
-            horizontalPadding={horizontalPadding}
-            variant={section.title === 'Popular & Trending' ? 'trending' : 'release'}
-          />
-        );
-      case 'author-row':
-        return <AuthorRowSection key={index} section={section} horizontalPadding={horizontalPadding} />;
-      case 'genre-grid':
-        return <GenreGridSection key={index} section={section} horizontalPadding={horizontalPadding} />;
-      case 'connect-with-us':
-        return <ConnectWithUsSection key={index} section={section} horizontalPadding={horizontalPadding} />;
-      default:
-        return null;
-    }
-  };
+  const greetingSection = sections.find(
+    (
+      s
+    ): s is Extract<
+      Section,
+      { type: "greeting" }
+    > => s.type === "greeting"
+  );
 
-  return (
-    <View style={styles.container}>
-      <View style={[styles.backgroundLayer, { height: BANNER_HEIGHT + insets.top }]} pointerEvents="none">
-        <View style={styles.photo} />
-        <LinearGradient
-          colors={['rgba(0,0,0,0)', '#000000', '#000000']}
-          locations={[0.026, 0.6377, 1]}
-          style={styles.shadow}
+  const heroSection = sections.find(
+    (
+      s
+    ): s is Extract<
+      Section,
+      { type: "hero" }
+    > => s.type === "hero"
+  );
+
+  const connectSection = sections.find(
+    (
+      s
+    ): s is Extract<
+      Section,
+      { type: "connect-with-us" }
+    > =>
+      s.type === "connect-with-us"
+  );
+
+  /*
+   * Remove greeting, hero and footer sections
+   * from the normal body rendering.
+   */
+  const bodySections = sections.filter(
+    (s) =>
+      s.type !== "greeting" &&
+      s.type !== "hero" &&
+      s.type !== "connect-with-us"
+  );
+
+  if (loading && !sections.length) {
+    return (
+      <View
+        style={[
+          styles.wrap,
+          styles.centerFill,
+        ]}
+      >
+        <ActivityIndicator
+          size="large"
+          color={COLORS.lav}
         />
       </View>
+    );
+  }
+
+  if (error && !sections.length) {
+    return (
+      <View
+        style={[
+          styles.wrap,
+          styles.centerFill,
+        ]}
+      >
+        <Text style={styles.errorText}>
+          {error}
+        </Text>
+
+        <TouchableOpacity
+          style={styles.retryBtn}
+          onPress={() =>
+            fetchDiscoverData()
+          }
+          accessibilityRole="button"
+        >
+          <Text style={styles.retryBtnText}>
+            Retry
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.wrap}>
+      <View
+        style={styles.bgFill}
+        pointerEvents="none"
+      />
+
+      <LinearGradient
+        colors={[
+          "rgba(0,0,0,0)",
+          "#000000",
+          "#000000",
+        ]}
+        locations={[
+          0.026,
+          0.6377,
+          1,
+        ]}
+        style={styles.bgOverlay}
+        pointerEvents="none"
+      />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.scrollContent,
-          {
-            maxWidth: MAX_CONTENT_WIDTH,
-            width: contentWidth,
-            alignSelf: 'center',
-            paddingBottom: footerHeight + 24,
-          },
-        ]}
+        contentContainerStyle={
+          styles.wrapContent
+        }
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onPullRefresh}
+            tintColor={COLORS.lav}
+            colors={[COLORS.lav]}
+            progressBackgroundColor="#1a1420"
+            title="Pulling fresh stories..."
+            titleColor={COLORS.text2}
+          />
+        }
       >
-        <View style={[styles.header, { paddingHorizontal: horizontalPadding, paddingTop: insets.top + 20 }]}>
-          <Text style={styles.headerTitle}>Hi! {user?.username}</Text>
-          <View style={styles.headerActions}>
-            <Pressable style={styles.iconButton} hitSlop={6}>
-              <Ionicons name="notifications-outline" size={20} color="#FFFFFF" />
-            </Pressable>
+        <View style={styles.screen}>
+
+          {/* ---------- top bar ---------- */}
+
+          <View style={[styles.topbar, { paddingTop: insets.top + 8 }]}>
+            <View style={styles.wordmark}>
+              <Text style={styles.deep}>
+                deep
+              </Text>
+
+              <Text style={styles.aud}>
+                audiobooks
+              </Text>
+            </View>
+
+            <View style={styles.topActions}>
+              <View style={styles.bell}>
+                <BellIcon />
+              </View>
+
+              <TouchableOpacity
+                style={styles.profileDot}
+                activeOpacity={0.7}
+                onPress={() => router.push("/profile")}
+                accessibilityRole="button"
+                accessibilityLabel="Open profile"
+              >
+                <Text style={styles.profileDotText}>
+                  {getInitialFromGreeting(
+                    greetingSection?.title
+                  )}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
+
+          {/* ---------- hero ---------- */}
+
+          <View style={styles.hero}>
+
+            {!!greetingSection?.title && (
+              <Text style={styles.greet}>
+                {greetingSection.title}
+              </Text>
+            )}
+
+            {!!greetingSection?.subtitle && (
+              <Text style={styles.greetSub}>
+                {greetingSection.subtitle}
+              </Text>
+            )}
+
+            {heroSection?.data && (
+              <View style={styles.primaryCard}>
+
+                {/* ---------- cover ---------- */}
+
+                <View style={styles.primaryCover}>
+                  {heroSection.data.cover ? (
+                    <Image
+                      source={{
+                        uri: heroSection.data.cover,
+                      }}
+                      style={
+                        StyleSheet.absoluteFillObject
+                      }
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <LinearGradient
+                      colors={[
+                        "#3a2f22",
+                        "#1a1410",
+                      ]}
+                      style={
+                        StyleSheet.absoluteFillObject
+                      }
+                    />
+                  )}
+
+                  <View style={styles.ribbon}>
+                    <BookIcon />
+
+                    <Text
+                      style={styles.ribbonText}
+                    >
+                      Audio book
+                    </Text>
+                  </View>
+                </View>
+
+                {/* ---------- hero information ---------- */}
+
+                <View style={styles.primaryInfo}>
+
+                  {/* 
+                   * RESUME:
+                   * Continue listening
+                   *
+                   * DISCOVER:
+                   * Discover
+                   */}
+
+                  <Text style={styles.primaryLabel}>
+                    {heroSection.mode === "resume"
+                      ? "Continue listening"
+                      : "Explore"}
+                  </Text>
+
+                  <Text
+                    style={styles.primaryTitle}
+                    numberOfLines={2}
+                  >
+                    {heroSection.data.title}
+                  </Text>
+
+                  <Text
+                    style={styles.primaryNarrator}
+                    numberOfLines={1}
+                  >
+                    {heroSection.data.narrator ||
+                      heroSection.data.author}
+                  </Text>
+
+                  <RatingBadge
+                    rating={heroSection.data.rating}
+                    size={12}
+                  />
+
+                  {!!heroSection.data.genre && (
+                    <Text
+                      style={[
+                        styles.cardGenre,
+                        {
+                          marginBottom: 10,
+                        },
+                      ]}
+                    >
+                      {heroSection.data.genre}
+                    </Text>
+                  )}
+
+                  {/* 
+                   * Button changes according to backend mode
+                   */}
+
+                  <TouchableOpacity
+                    style={styles.resumeBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      heroSection.mode ===
+                      "resume"
+                        ? `Resume ${heroSection.data.title}`
+                        : `Listen to ${heroSection.data.title}`
+                    }
+                  >
+                    <PlayIcon />
+
+                    <Text
+                      style={
+                        styles.resumeBtnText
+                      }
+                    >
+                      {heroSection.mode ===
+                      "resume"
+                        ? "Resume"
+                        : "Listen now"}
+                    </Text>
+                  </TouchableOpacity>
+
+                </View>
+              </View>
+            )}
+          </View>
+
+          {/* ---------- body sections ---------- */}
+
+          {bodySections.map(
+            (section, i) =>
+              renderSection(
+                section,
+                i
+              )
+          )}
+
+          {/* ---------- footer ---------- */}
+
+          <ConnectFooter
+            links={connectSection?.data}
+          />
+
         </View>
-
-        {loading ? (
-          <ActivityIndicator color="#FFFFFF" style={{ marginTop: 40 }} />
-        ) : error ? (
-          <Text style={{ color: '#FFFFFF', textAlign: 'center', marginTop: 40 }}>{error}</Text>
-        ) : (
-          sections.map(renderSection)
-        )}
       </ScrollView>
-
-      <SafeAreaView edges={['bottom']} style={styles.tabBar}>
-        <Pressable style={styles.tabItem} onPress={() => router.push('/home')}>
-          <Ionicons name="home-outline" size={22} color="#FFFFFF" />
-          <Text style={styles.tabLabel}>Home</Text>
-        </Pressable>
-        <Pressable style={styles.tabItem}>
-          <Ionicons name="search" size={20} color="#8A8A8A" />
-          <Text style={styles.tabLabel}>Search</Text>
-        </Pressable>
-        <Pressable style={styles.tabItem} onPress={() => router.push('/favorites')}>
-          <Ionicons name="bookmark" size={18} color="#8A8A8A" />
-          <Text style={styles.tabLabel}>Favorites</Text>
-        </Pressable>
-        <Pressable style={styles.tabItem} onPress={() => router.push('/profile')}>
-          <Ionicons name="person-outline" size={22} color="#8A8A8A" />
-          <Text style={styles.tabLabel}>Profile</Text>
-        </Pressable>
-      </SafeAreaView>
     </View>
   );
-}
+};
 
-
+export default DeepAudiobooksHome;

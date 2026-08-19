@@ -1,6 +1,6 @@
 
 import {
-    StyleSheet
+  StyleSheet
 } from 'react-native';
 
 const styles = StyleSheet.create({
@@ -118,6 +118,10 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.7,
   },
+
+  disabledButton: {
+  opacity: 0.6,
+},
 });
 
 export default styles;

@@ -15,8 +15,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import axios from '../../axios.config';
-import { loginUser } from '../../redux/slices/authReducer'; // path adjust pண்ணுங்க
-import { useAppDispatch } from '../../utils/typedReduxHooks'; // path adjust pண்ணுங்க
+import { loginUser } from '../../redux/slices/authReducer';
+import { useAppDispatch } from '../../utils/typedReduxHooks';
 import styles from './style';
 
 
@@ -40,38 +40,43 @@ export function SignInScreen() {
     try {
       setLoading(true);
 
-      const { data } = await axios.post('/', {
-        method: 'authUser',
-        name: name,
-        email_id: email,
-        password: password,
-      });
+      const { data } = await axios.post(
+        '/',
+        {
+          method: 'authUser',
+          name: name,
+          email_id: email,
+          password: password,
+        },
+        { timeout: 15000 } // ✅ 15 sec timeout - hang aaga kudathu
+      );
 
       if (data.statusCode === 200) {
         // ✅ username & email Redux + AsyncStorage 
         await dispatch(loginUser({
           username: data.data.firstName,
           email: data.data.email,
-          userId:data.data.userId,
+          userId: data.data.userId,
         }));
 
-        // success aana mattum next page poganum
+        // success only 
         router.push("/home");
       } else {
         // 401, 404 etc - error
-        // for test
-        router.push("/home");
         setErrorMsg(data.msg || 'Login failed. Please try again.');
       }
     } catch (error: any) {
-        router.push("/home");
       console.log("Error code:", error.code);
       console.log("Error message:", error.message);
       console.log("Error response:", error.response);
       console.log("Error request:", error.request);
-      setErrorMsg('Something went wrong. Please try again.');
+
+      if (error.code === 'ECONNABORTED') {
+        setErrorMsg('Request timed out. Please check your connection and try again.');
+      } else {
+        setErrorMsg('Something went wrong. Please try again.');
+      }
     } finally {
-        router.push("/home");
       setLoading(false);
     }
   };
@@ -119,6 +124,7 @@ export function SignInScreen() {
                   keyboardType="email-address"
                   textContentType="emailAddress"
                   returnKeyType="next"
+                  editable={!loading}
                 />
               </View>
 
@@ -132,6 +138,7 @@ export function SignInScreen() {
                   secureTextEntry
                   textContentType="password"
                   returnKeyType="done"
+                  editable={!loading}
                 />
               </View>
 
@@ -147,10 +154,14 @@ export function SignInScreen() {
                 style={({ pressed }) => [
                   styles.signInButton,
                   pressed && styles.pressed,
+                  loading && styles.disabledButton,
                 ]}
               >
                 {loading ? (
-                  <ActivityIndicator color="#FFFFFF" />
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <ActivityIndicator color="#FFFFFF" />
+                    <Text style={styles.signInButtonText}>Signing in...</Text>
+                  </View>
                 ) : (
                   <Text style={styles.signInButtonText}>Sign in</Text>
                 )}

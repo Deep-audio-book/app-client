@@ -1,35 +1,74 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
-import React from 'react';
+import { Pressable, StyleSheet, Text } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+function CustomTabBar({ state, navigation }: any) {
+  const routeNames = state.routes.map((r: any) => r.name);
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  const TAB_CONFIG = [
+    { name: 'home', label: 'Home', icon: 'home-outline', size: 22 },
+    { name: 'album', label: 'Search', icon: 'search', size: 20 },
+    { name: 'favorites', label: 'Favorites', icon: 'bookmark', size: 18 },
+    { name: 'albums', label: 'Library', icon: 'library', size: 22 },
+  ];
 
   return (
+    <SafeAreaView edges={['bottom']} style={styles.tabBar}>
+      {TAB_CONFIG.map((tab) => {
+        const routeIndex = routeNames.indexOf(tab.name);
+        const isFocused = state.index === routeIndex;
+
+        return (
+          <Pressable
+            key={tab.name}
+            style={styles.tabItem}
+            onPress={() => navigation.navigate(tab.name)}
+          >
+            <Ionicons
+              name={tab.icon as any}
+              size={tab.size}
+              color={isFocused ? '#FFFFFF' : '#8A8A8A'}
+            />
+            <Text style={[styles.tabLabel, { color: isFocused ? '#FFFFFF' : '#8A8A8A' }]}>
+              {tab.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </SafeAreaView>
+  );
+}
+
+export default function TabLayout() {
+  return (
     <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        headerShown: false,
-        tabBarButton: HapticTab,
-      }}>
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
-        }}
-      />
+      tabBar={(props) => <CustomTabBar {...props} />}
+      screenOptions={{ headerShown: false }}
+    >
+      <Tabs.Screen name="home" />
+      <Tabs.Screen name="album" />
+      <Tabs.Screen name="favorites" />
+      <Tabs.Screen name="albums" />
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: '#000000',
+    borderTopWidth: 0.5,
+    borderTopColor: '#222',
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+  },
+  tabLabel: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+});

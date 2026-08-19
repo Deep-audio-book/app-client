@@ -11,8 +11,7 @@ import {
   useWindowDimensions
 } from 'react-native';
 import {
-  SafeAreaView,
-  useSafeAreaInsets,
+  useSafeAreaInsets
 } from 'react-native-safe-area-context';
 
 const BASE_WIDTH = 390;
@@ -223,12 +222,7 @@ export default function AlbumsScreen() {
 
       <Header topInset={insets.top} horizontalPadding={horizontalPadding} />
 
-      <View style={styles.footer}>
-        <MiniPlayer sideInset={sideInset} />
-        <SafeAreaView edges={['bottom']}>
-          <BottomTabBar bottomInset={0} sideInset={sideInset} />
-        </SafeAreaView>
-      </View>
+
     </View>
   );
 }
