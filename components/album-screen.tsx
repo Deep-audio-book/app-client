@@ -299,7 +299,7 @@ export default function AlbumScreen() {
 
       <View style={styles.footer}>
         <MiniPlayer sideInset={sideInset} />
-        <BottomTabBar bottomInset={insets.bottom} sideInset={sideInset} />
+        {/* <BottomTabBar bottomInset={insets.bottom} sideInset={sideInset} /> */}
       </View>
     </View>
   );

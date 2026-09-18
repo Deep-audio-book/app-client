@@ -1,4 +1,4 @@
-import PlayerStandardScreen from '@/components/player-standard-screen';
+import PlayerStandardScreen from '@/components/story/player-standard-screen';
 
 export default function PlayerStandard() {
   return <PlayerStandardScreen />;

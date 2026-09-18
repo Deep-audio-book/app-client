@@ -11,8 +11,7 @@ import {
   useWindowDimensions
 } from 'react-native';
 import {
-  SafeAreaView,
-  useSafeAreaInsets,
+  useSafeAreaInsets
 } from 'react-native-safe-area-context';
 
 const BASE_WIDTH = 390;
@@ -114,9 +113,9 @@ function Header({ topInset, horizontalPadding }: { topInset: number; horizontalP
         <Text style={styles.headerTitle} numberOfLines={1} maxFontSizeMultiplier={1.4}>
           Albums
         </Text>
-        <Pressable hitSlop={10} style={styles.headerButton}>
+        {/* <Pressable hitSlop={10} style={styles.headerButton}>
           <Ionicons name="menu" size={22} color="#FFFFFF" />
-        </Pressable>
+        </Pressable> */}
       </View>
     </View>
   );
@@ -223,12 +222,7 @@ export default function AlbumsScreen() {
 
       <Header topInset={insets.top} horizontalPadding={horizontalPadding} />
 
-      <View style={styles.footer}>
-        <MiniPlayer sideInset={sideInset} />
-        <SafeAreaView edges={['bottom']}>
-          <BottomTabBar bottomInset={0} sideInset={sideInset} />
-        </SafeAreaView>
-      </View>
+
     </View>
   );
 }

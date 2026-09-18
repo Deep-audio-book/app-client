@@ -10,7 +10,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const BASE_WIDTH = 390;
 const MAX_CONTENT_WIDTH = 560;
@@ -197,7 +197,7 @@ export default function FavoritesScreen() {
           </View>
         </View>
 
-        <SafeAreaView edges={['bottom']} style={styles.tabBar}>
+        {/* <SafeAreaView edges={['bottom']} style={styles.tabBar}>
           <View
             style={[
               styles.tabBarContent,
@@ -231,7 +231,7 @@ export default function FavoritesScreen() {
               </Text>
             </Pressable>
           </View>
-        </SafeAreaView>
+        </SafeAreaView> */}
       </View>
     </View>
   );
