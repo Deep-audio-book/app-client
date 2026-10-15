@@ -1,23 +1,26 @@
+import { getDownloadedStorySummaries } from '../../download/downloadService';
+import { useDownloadStore, waitForHydration } from '../../download/downloadStore';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   View,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-
-import { useAppSelector } from '../utils/typedReduxHooks';
-
-const BASE_WIDTH = 390;
-const MAX_CONTENT_WIDTH = 480;
-const MINI_PLAYER_HEIGHT = 51;
-const TAB_BAR_CONTENT_HEIGHT = 62;
-const MIN_TOUCH_TARGET = 44;
+import { logoutUser } from '../../redux/slices/authReducer';
+import { useAppDispatch, useAppSelector } from '../../utils/typedReduxHooks';
+import styles, {
+  BASE_WIDTH,
+  COLORS,
+  MAX_CONTENT_WIDTH,
+  MIN_TOUCH_TARGET,
+} from './style';
 
 function clampValue(value: number, min: number, max: number) {
   if (value < min) return min;
@@ -25,37 +28,152 @@ function clampValue(value: number, min: number, max: number) {
   return value;
 }
 
+function initialsFor(name?: string) {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0]?.[0] ?? '';
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
+  return (first + last).toUpperCase() || '?';
+}
+
+/* ---------- one flat list row: icon, label, value/chevron ---------- */
+
+function Row({
+  icon,
+  label,
+  value,
+  onPress,
+  tone = 'default',
+  showChevron = true,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value?: string;
+  onPress?: () => void;
+  tone?: 'default' | 'danger';
+  showChevron?: boolean;
+}) {
+  const color = tone === 'danger' ? COLORS.danger : COLORS.cream;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      style={({ pressed }) => [styles.row, pressed && onPress && styles.rowPressed]}
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityLabel={label}
+    >
+      <View style={styles.rowIconWrap}>
+        <Ionicons name={icon} size={18} color={color} />
+      </View>
+
+      <Text style={[styles.rowLabel, { color }]} numberOfLines={1}>
+        {label}
+      </Text>
+
+      {value ? (
+        <Text style={styles.rowValue} numberOfLines={1}>
+          {value}
+        </Text>
+      ) : null}
+
+      {onPress && showChevron && (
+        <Ionicons name="chevron-forward" size={16} color={COLORS.textFaint} />
+      )}
+    </Pressable>
+  );
+}
+
+function SectionLabel({ children }: { children: string }) {
+  return <Text style={styles.sectionLabel}>{children}</Text>;
+}
+
+/* ---------- main screen ---------- */
+
 export default function ProfileScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
+  const dispatch = useAppDispatch();
+  const user = useAppSelector((s) => s.auth.user);
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
   const contentWidth = Math.min(width, MAX_CONTENT_WIDTH);
   const scale = clampValue(contentWidth / BASE_WIDTH, 0.85, 1.25);
-  const footerHeight = MINI_PLAYER_HEIGHT + TAB_BAR_CONTENT_HEIGHT + insets.bottom;
+  const avatarSize = Math.round(clampValue(96 * scale, 84, 112));
 
-  const horizontalPadding = Math.round(clampValue(12 * scale, 12, 24));
-  const avatarSize = Math.round(clampValue(97 * scale, 88, 120));
-  const buttonMinHeight = Math.round(clampValue(58 * scale, MIN_TOUCH_TARGET, 68));
+  // Real downloaded-episode count for the "Downloads" row, so it's
+  // never a placeholder number.
+  const [downloadedEpisodes, setDownloadedEpisodes] = useState(0);
+  const downloadSig = useDownloadStore((s) =>
+    Object.values(s.files)
+      .map((f) => `${f.storyId}:${f.chapterId}:${f.kind}:${f.status}`)
+      .sort()
+      .join('|')
+  );
+  useEffect(() => {
+    waitForHydration().then(() => {
+      const total = getDownloadedStorySummaries().reduce(
+        (sum, s) => sum + s.episodesDownloaded,
+        0
+      );
+      setDownloadedEpisodes(total);
+    });
+  }, [downloadSig]);
 
+  // BUG FIX #1: this used to just do router.replace('/') without clearing
+  // the session. Redux + AsyncStorage still had the user, so app/index.tsx
+  // saw a logged-in user and sent them straight back to /home.
+  //
+  // BUG FIX #2/#3: Profile is presented as a MODAL over the (tabs) group.
+  // router.replace('/sign-in') alone only swaps the modal's own route -
+  // (tabs)/Home underneath stays in the stack and reappears once the
+  // modal finishes closing.
+  //
+  // BUG FIX #4: calling dismissAll() then replace() as two separate
+  // steps raced - dismissAll() dispatches a POP_TO_TOP action, but by
+  // the time it's processed, replace() had already changed the
+  // navigator state, so the pop had nowhere to land ("The action
+  // 'POP_TO_TOP' was not handled by any navigator" dev warning).
+  // dismissTo() dismisses the modal AND navigates to the target route
+  // as one atomic action - built for exactly this "close modal, go
+  // somewhere else" case - so there's no race.
+  const handleLogout = async () => {
+    await dispatch(logoutUser());
 
-    const user = useAppSelector((state) => state.auth.user);
-
+    if (typeof (router as any).dismissTo === 'function') {
+      (router as any).dismissTo('/sign-in');
+    } else {
+      // Older expo-router without dismissTo - fall back to the two-step
+      // version, safely guarded.
+      try {
+        router.dismissAll();
+      } catch {
+        // Nothing to dismiss - fine.
+      }
+      router.replace('/sign-in');
+    }
+  };
 
   return (
     <View style={styles.container}>
-      <View style={styles.glow} pointerEvents="none" />
+      <LinearGradient
+        colors={[COLORS.glowTop, 'transparent']}
+        style={styles.glow}
+        pointerEvents="none"
+      />
 
       <SafeAreaView edges={['top']} style={styles.headerSafeArea}>
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Profile</Text>
+          <Text style={styles.headerTitle}>{t('profile.title')}</Text>
           <Pressable
             hitSlop={12}
             style={styles.closeButton}
             onPress={() => router.back()}
             accessibilityRole="button"
-            accessibilityLabel="Close profile">
-            <Ionicons name="close" size={18} color="#FFFFFF" />
+            accessibilityLabel={t('profile.closeProfile')}
+          >
+            <Ionicons name="close" size={18} color={COLORS.cream} />
           </Pressable>
         </View>
       </SafeAreaView>
@@ -66,241 +184,87 @@ export default function ProfileScreen() {
         contentContainerStyle={[
           styles.scrollContent,
           {
-            paddingBottom: footerHeight,
-            paddingHorizontal: horizontalPadding,
+            paddingBottom: insets.bottom + 32,
             maxWidth: MAX_CONTENT_WIDTH,
             alignSelf: 'center',
             width: '100%',
           },
-        ]}>
-        <View
-          style={[
-            styles.avatar,
-            { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 },
-          ]}
-        />
+        ]}
+      >
+        {/* ---------- hero ---------- */}
+        <View style={styles.hero}>
+          <View
+            style={[
+              styles.avatarRing,
+              { width: avatarSize + 6, height: avatarSize + 6, borderRadius: (avatarSize + 6) / 2 },
+            ]}
+          >
+            <LinearGradient
+              colors={[COLORS.gold, COLORS.maroon]}
+              start={{ x: 0.1, y: 0 }}
+              end={{ x: 0.9, y: 1 }}
+              style={[
+                styles.avatar,
+                { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 },
+              ]}
+            >
+              <Text style={[styles.avatarInitials, { fontSize: avatarSize * 0.34 }]}>
+                {initialsFor(user?.username)}
+              </Text>
+            </LinearGradient>
+          </View>
 
-        <Text style={styles.name}>{user?.username}</Text>
-        <Text style={styles.email}>{user?.email}</Text>
-
-        <View style={[styles.subscriptionCard, { paddingHorizontal: Math.round(24 * scale) }]}>
-          <Text style={styles.subscriptionTitle}>My subscription</Text>
-          <Text style={styles.subscriptionSubtitle}>Valid until May 23, 2021</Text>
+          <Text style={styles.name} numberOfLines={1}>
+            {user?.username || t('profile.defaultName')}
+          </Text>
+          {!!user?.email && (
+            <Text style={styles.email} numberOfLines={1}>
+              {user.email}
+            </Text>
+          )}
         </View>
 
-        <Pressable
-          style={({ pressed }) => [styles.button, { minHeight: buttonMinHeight }, pressed && styles.pressed]}
-          accessibilityRole="button">
-          <Text style={styles.buttonText}>Restore purchases</Text>
-        </Pressable>
+        {/* ---------- listening ---------- */}
+        <SectionLabel>{t('profile.listeningSection')}</SectionLabel>
+        <View style={styles.group}>
+          <Row
+            icon="download-outline"
+            label={t('profile.downloads')}
+            value={
+              downloadedEpisodes > 0
+                ? t('profile.downloadsCount', { count: downloadedEpisodes })
+                : t('profile.noDownloadsYet')
+            }
+            onPress={() => router.push('/library' as any)}
+          />
+        </View>
 
-        <Pressable
-          style={({ pressed }) => [styles.button, { minHeight: buttonMinHeight }, pressed && styles.pressed]}
-          accessibilityRole="button">
-          <Text style={styles.buttonText}>Enter promo code</Text>
-        </Pressable>
+        {/* ---------- membership ---------- */}
+        <SectionLabel>{t('profile.membershipSection')}</SectionLabel>
+        <View style={styles.group}>
+          <Row
+            icon="star-outline"
+            label={t('profile.subscription')}
+            value={t('profile.subscriptionValidUntil', { date: 'May 23, 2021' })}
+            showChevron={false}
+          />
+          <View style={styles.rowDivider} />
+          <Row icon="refresh-outline" label={t('profile.restorePurchases')} onPress={() => {}} />
+          <View style={styles.rowDivider} />
+          <Row icon="pricetag-outline" label={t('profile.enterPromoCode')} onPress={() => {}} />
+        </View>
 
-       <Pressable
-        style={({ pressed }) => [
-          styles.button,
-          { minHeight: buttonMinHeight },
-          pressed && styles.pressed,
-        ]}
-        accessibilityRole="button"
-        onPress={() => router.replace('/')}
-      >
-        <Text style={styles.buttonText}>Logout</Text>
-      </Pressable>
+        {/* ---------- sign out ---------- */}
+        <View style={[styles.group, styles.signOutGroup]}>
+          <Row
+            icon="log-out-outline"
+            label={t('profile.logOut')}
+            tone="danger"
+            onPress={handleLogout}
+            showChevron={false}
+          />
+        </View>
       </ScrollView>
-
-      
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000000',
-  },
-
-  glow: {
-    position: 'absolute',
-    top: -180,
-    alignSelf: 'center',
-    width: 480,
-    height: 480,
-    borderRadius: 240,
-    backgroundColor: '#D6875D',
-    opacity: 0.4,
-  },
-
-  headerSafeArea: {
-    backgroundColor: 'rgba(0,0,0,0.65)',
-  },
-
-  header: {
-    height: 62,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  headerTitle: {
-    color: '#FFFFFF',
-    fontSize: 20,
-  },
-
-  closeButton: {
-    position: 'absolute',
-    right: 12,
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  scrollContent: {},
-
-  avatar: {
-    backgroundColor: '#FECBA8',
-    alignSelf: 'center',
-    marginTop: 24,
-  },
-
-  name: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '500',
-    textAlign: 'center',
-    marginTop: 16,
-  },
-
-  email: {
-    color: '#FFFFFF',
-    opacity: 0.5,
-    fontSize: 14,
-    textAlign: 'center',
-    marginTop: 4,
-  },
-
-  subscriptionCard: {
-    minHeight: 82,
-    borderRadius: 9,
-    backgroundColor: 'rgba(0,0,0,0.62)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 32,
-  },
-
-  subscriptionTitle: {
-    color: '#FFFFFF',
-    fontSize: 16,
-  },
-
-  subscriptionSubtitle: {
-    color: '#FFFFFF',
-    opacity: 0.5,
-    fontSize: 14,
-    marginTop: 4,
-  },
-
-  button: {
-    minHeight: 58,
-    borderRadius: 9,
-    backgroundColor: 'rgba(255,255,255,0.42)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 16,
-  },
-
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-  },
-
-  pressed: {
-    opacity: 0.7,
-  },
-
-  footer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-
-  miniPlayer: {
-    height: 51,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 30,
-  },
-
-  miniPlayerExpand: {
-    minWidth: 24,
-    minHeight: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  miniPlayerInfo: {
-    flex: 1,
-    alignItems: 'center',
-  },
-
-  miniPlayerTitle: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '500',
-  },
-
-  miniPlayerArtist: {
-    color: '#FFFFFF',
-    opacity: 0.5,
-    fontSize: 11,
-    marginTop: 2,
-  },
-
-  miniPlayerPause: {
-    minWidth: 24,
-    minHeight: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  miniPlayerProgressTrack: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 3,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-  },
-
-  miniPlayerProgressFill: {
-    width: '44%',
-    height: 3,
-    backgroundColor: '#FFFFFF',
-  },
-
-  tabBar: {
-    flexDirection: 'row',
-    backgroundColor: '#000000',
-    paddingTop: 12,
-  },
-
-  tabItem: {
-    flex: 1,
-    minHeight: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-
-  tabLabel: {
-    color: '#8A8A8A',
-    fontSize: 11,
-  },
-});

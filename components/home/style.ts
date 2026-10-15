@@ -33,9 +33,14 @@ export const COLORS = {
   hair: "rgba(243,239,247,0.08)",
 };
 
+/* ---------- shared card size (grid, bed, new-release carousel) ---------- */
+export const CARD_W = 172;
+export const CARD_H = 258;      // 2:3 vertical rectangle
+export const CARD_RADIUS = 16;
+
 
 const styles = StyleSheet.create({
-    
+
   wrap: {
     flex: 1,
     backgroundColor: COLORS.wrapBg,
@@ -76,7 +81,7 @@ const styles = StyleSheet.create({
   wrapContent: {
     flexGrow: 1,
     alignItems: "stretch",
-    paddingVertical: 32,  
+    paddingVertical: 32,
   },
   screen: {
     width: "100%",
@@ -140,13 +145,84 @@ const styles = StyleSheet.create({
     color: "#fff",
   },
 
+  /* ---------- Buy vs Unlimited experience switch ---------- */
+  modeSwitch: {
+    flexDirection: "row",
+    alignSelf: "flex-start",
+    marginHorizontal: 18,
+    marginTop: 14,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: COLORS.hair,
+    borderRadius: 22,
+    padding: 3,
+    gap: 2,
+  },
+  modeTab: {
+    paddingVertical: 7,
+    paddingHorizontal: 16,
+    borderRadius: 18,
+  },
+  modeTabActive: {
+    backgroundColor: COLORS.lav,
+  },
+  modeTabText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: COLORS.text2,
+  },
+  modeTabTextActive: {
+    color: "#241b2c",
+  },
+
+  /* ---------- subscribe banner (shown in Unlimited experience) ---------- */
+  subscribeBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: COLORS.panel,
+    borderWidth: 1,
+    borderColor: "rgba(183,155,209,0.35)",
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 14,
+  },
+  subscribeBannerIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: COLORS.lavSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  subscribeBannerTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: COLORS.text1,
+    marginBottom: 2,
+  },
+  subscribeBannerSubtitle: {
+    fontSize: 11,
+    color: COLORS.text2,
+  },
+  subscribeBtn: {
+    backgroundColor: COLORS.lav,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+  },
+  subscribeBtnText: {
+    color: "#241b2c",
+    fontWeight: "700",
+    fontSize: 11.5,
+  },
 
   hero: {
     paddingHorizontal: 18,
     paddingTop: 14,
     paddingBottom: 6,
   },
-  
+
   greet: {
     fontWeight: "700",
     fontSize: 20,
@@ -161,13 +237,8 @@ const styles = StyleSheet.create({
   },
 
   /* ---------- hero card ----------
-   * Row layout: small cover on the left, info block on the right.
-   * primaryInfo is top-aligned (not vertically centered) so the text
-   * block always starts at the same y as the cover regardless of how
-   * many lines it has (title/narrator/voice/genre), and the bottom
-   * action row (price + cart + button) is bottom-aligned as a group so
-   * the price chip's two lines don't push the cart/resume buttons out
-   * of alignment with it.
+   * Row layout: cover on the left, info block on the right.
+   * Cover is now a vertical rectangle (112 x 168, 2:3).
    */
   primaryCard: {
     flexDirection: "row",
@@ -179,8 +250,8 @@ const styles = StyleSheet.create({
     borderColor: COLORS.hair,
   },
   primaryCover: {
-    width: 92,
-    height: 118,
+    width: 112,
+    height: 168,
     borderRadius: 10,
     overflow: "hidden",
     position: "relative",
@@ -217,10 +288,7 @@ const styles = StyleSheet.create({
   primaryInfo: {
     flex: 1,
     minWidth: 0,
-    // Was "center" — with variable content (narrator/voice line,
-    // genre pill) this made the block's vertical position shift card
-    // to card. flex-start keeps the title always starting level with
-    // the top of the cover.
+    // flex-start keeps the title always starting level with the top of the cover.
     justifyContent: "flex-start",
   },
   primaryLabel: {
@@ -240,7 +308,7 @@ const styles = StyleSheet.create({
   primaryNarrator: {
     fontSize: 11.5,
     color: COLORS.text3,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   heroMetaRow: {
     flexDirection: "row",
@@ -268,11 +336,8 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
     marginTop: 2,
   },
-  // Price + cart, now shown as a small overlay badge on the hero cover
-  // itself (bottom-left corner), same spot as the grid-card price
-  // badge, instead of sitting inline next to the Listen/Resume button.
-  // This removes the "2-line price block vs 1-line button" mismatch
-  // that was causing the alignment issue.
+  // Price + cart (or Unlimited pill), shown as a small overlay badge
+  // on the hero cover itself (bottom-left corner).
   heroCoverPriceCart: {
     position: "absolute",
     left: 6,
@@ -382,7 +447,7 @@ const styles = StyleSheet.create({
 
   rowSec: {
     paddingTop: 18,
-    paddingBottom: 2,
+    paddingBottom: 12,      // was 2
   },
   rowHead: {
     flexDirection: "row",
@@ -411,33 +476,43 @@ const styles = StyleSheet.create({
   },
   rowScroll: {
     flexDirection: "row",
-    gap: 12,
+    gap: 14,                // was 12
     paddingHorizontal: 18,
     paddingBottom: 4,
   },
 
+  /* ---------- grid story card ----------
+   * Uses the shared CARD_W x CARD_H (same as bed cards and
+   * the New Releases carousel). Cover only, no text below.
+   */
   card: {
-    width: 126,
+    width: CARD_W,
   },
   cardCover: {
-    width: 126,
-    height: 158,
-    borderRadius: 10,
-    marginBottom: 7,
+    width: CARD_W,
+    height: CARD_H,
+    borderRadius: CARD_RADIUS,
+    marginBottom: 0,
     position: "relative",
     overflow: "hidden",
   },
   cardTitle: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: "600",
     color: COLORS.text1,
-    lineHeight: 15,
-    marginBottom: 2,
+    lineHeight: 16,
+    marginBottom: 4,
+  },
+  cardMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
   },
   cardNarrator: {
     fontSize: 10.5,
     color: COLORS.text3,
-    marginBottom: 4,
+    flexShrink: 1,
   },
   cardFoot: {
     flexDirection: "row",
@@ -448,24 +523,13 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     color: COLORS.text3,
   },
-  cardGenre: {
-    marginTop: 4,
-    fontSize: 9,
-    color: COLORS.lav,
-    backgroundColor: COLORS.lavSoft,
-    paddingVertical: 2,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    alignSelf: "flex-start",
-    overflow: "hidden",
-  },
 
   bedSection: {
     marginTop: 24,
     marginHorizontal: 18,
     backgroundColor: COLORS.panel,
     borderRadius: 16,
-    paddingVertical: 12,      // 👈 padding: 12 -> paddingVertical: 12
+    paddingVertical: 12,
     borderWidth: 1,
     borderColor: COLORS.hair,
     overflow: "hidden",
@@ -479,7 +543,7 @@ const styles = StyleSheet.create({
   },
   bedRowScroll: {
     flexDirection: "row",
-    gap: 14,
+    gap: 16,                // was 14
     paddingHorizontal: 18,
     paddingBottom: 4,
   },
@@ -505,13 +569,14 @@ const styles = StyleSheet.create({
     color: COLORS.text2,
   },
 
+  /* Bed card uses the same shared CARD_W x CARD_H. */
   bedCard: {
-    width: 150,
+    width: CARD_W,
   },
   bedCover: {
-    width: 150,
-    height: 180,
-    borderRadius: 16,
+    width: CARD_W,
+    height: CARD_H,
+    borderRadius: CARD_RADIUS,
     padding: 14,
     justifyContent: "center",
     alignItems: "center",
@@ -549,7 +614,6 @@ const styles = StyleSheet.create({
   bedCardNarrator: {
     fontSize: 11.5,
     color: COLORS.text3,
-    marginBottom: 4,
   },
 
   tertiary: {
@@ -686,7 +750,24 @@ const styles = StyleSheet.create({
     textTransform: "capitalize",
     backgroundColor: "rgba(0,0,0,0.4)",
   },
-
+  primaryGenreText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: COLORS.lav,
+    marginBottom: 4,
+  },
+  bedGenreText: {
+    fontSize: 10.5,
+    fontWeight: "600",
+    color: COLORS.lav,
+    marginBottom: 2,
+  },
+  cardGenreText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: COLORS.lav,
+    marginBottom: 3,
+  },
 
 });
 

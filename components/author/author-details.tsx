@@ -22,7 +22,6 @@ import {
 } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
-
 import styles from './style';
 
 const DESIGN_WIDTH = 393;
@@ -106,7 +105,7 @@ type Episode = {
   cover?: string | null;
 };
 
-type AuthorDetails = {
+type PersonDetails = {
   id: number;
   name: string;
   icon?: string | null;
@@ -118,8 +117,25 @@ type AuthorDetails = {
 };
 
 // ---------------- Screen ----------------
+// Fully generic: this screen doesn't know or care whether it's showing
+// an "author" or a "narrator". The PREVIOUS screen decides everything:
+//   - method  -> the axios "method" field sent to backend (e.g. 'getAuthorDetails')
+//   - id_key  -> the body key the id is sent under (e.g. 'author_id')
+//   - id      -> the actual id value
+//   - title   -> (optional) fallback header text while loading / on error
+//
+// Example navigation from a previous screen:
+//   router.push({
+//     pathname: '/author-details',
+//     params: {
+//       method: 'getAuthorDetails',
+//       id_key: 'author_id',
+//       id: author.id.toString(),
+//       title: 'Author',
+//     },
+//   });
 
-export default function AuthorDetailsScreen() {
+export default function AuthorDetailScreen() {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
 
@@ -142,44 +158,62 @@ export default function AuthorDetailsScreen() {
   );
 
   // ---------------- Params ----------------
+  // Previous screen sends: method, id_key, id (and optionally title)
 
-  const { author_id } =
-    useLocalSearchParams<{ author_id: string }>();
+  const { method, id_key, id, title, color } =
+    useLocalSearchParams<{
+      method: string;
+      id_key: string;
+      id: string;
+      title?: string;
+      color?: string;
+    }>();
+
+  // Falls back to a type-specific hero color if the previous screen didn't
+  // pass one explicitly — narrator screens get their own tint, everything
+  // else (author, or unknown) falls back to the author tint.
+  const heroColorMap: Record<string, string> = {
+    getAuthorDetails: '#86915079',
+    getNarratorDetails: '#684a6a',
+  };
+
+  const heroColor =
+    color || heroColorMap[method ?? ''] || '#86915079';
 
   // ---------------- State ----------------
 
-  const [author, setAuthor] =
-    useState<AuthorDetails | null>(null);
+  const [person, setPerson] =
+    useState<PersonDetails | null>(null);
 
   const [loading, setLoading] = useState(true);
 
   const [error, setError] =
     useState<string | null>(null);
 
-  // ---------------- Fetch Author ----------------
+  // ---------------- Fetch ----------------
 
-  const fetchAuthorDetails = useCallback(async () => {
-    if (!author_id) return;
+  const fetchDetails = useCallback(async () => {
+    if (!id || !method || !id_key) return;
 
     try {
       setLoading(true);
       setError(null);
 
       const { data } = await axios.post('/', {
-        method: 'getAuthorDetails',
-        author_id: author_id,
+        method,           // e.g. 'getAuthorDetails' / 'getNarratorDetails'
+        [id_key]: id,     // e.g. author_id: '123' / narrator_id: '123'
       });
 
       if (data.statusCode === 200) {
-        setAuthor(data.data);
+        setPerson(data.data);
       } else {
         setError(
-          data.msg || 'Failed to load author details'
+          data.msg || 'Failed to load details'
         );
       }
     } catch (err: any) {
       console.log(
-        'Author details error:',
+        'Details fetch error:',
         err?.response?.data || err?.message || err
       );
 
@@ -189,13 +223,13 @@ export default function AuthorDetailsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [author_id]);
+  }, [id, method, id_key]);
 
   useEffect(() => {
-    fetchAuthorDetails();
-  }, [fetchAuthorDetails]);
+    fetchDetails();
+  }, [fetchDetails]);
 
-  const episodes = author?.stories ?? [];
+  const episodes = person?.stories ?? [];
 
   // Random 10 stories to display on this screen.
   // Re-shuffled only when the underlying stories list changes,
@@ -204,6 +238,56 @@ export default function AuthorDetailsScreen() {
     () => shuffleArray(episodes).slice(0, 10),
     [episodes]
   );
+
+  // ---------------------------------------------------------------
+  // FIX: "View All" -> /storyView param mapping
+  // ---------------------------------------------------------------
+  // useStoryData() (the hook that /storyView uses) expects:
+  //    api_method, key_type, view_type, extraParams: { [id_key]: id }
+  //
+  // This screen was previously sending: method, id_key, id
+  // -> storyView read `api_method`/`key_type` as undefined
+  // -> useStoryData() hit its guard clause and set
+  //    "Invalid story parameters." / rendered nothing useful.
+  //
+  // getAuthorDetails/getNarratorDetails (used on THIS screen) returns a
+  // detail-page shape ({ id, name, description, stories: [...] }), not the
+  // listing shape useStoryData expects ({ header: { chips }, stories,
+  // heading, subheading }). So the "View All" listing screen must call a
+  // dedicated *listing* method, not reuse `method` as-is.
+  //
+  // Adjust `listingMethod` below to whatever your backend's actual
+  // "list all stories for this author/narrator" method is named
+  // (confirm with backend — placeholder mapping shown here).
+  // ---------------------------------------------------------------
+
+  const listingMethodMap: Record<string, string> = {
+    getAuthorDetails: 'getAuthorDetails',
+    getNarratorDetails: 'getNarratorDetails',
+  };
+
+  const keyTypeMap: Record<string, string> = {
+    getAuthorDetails: 'author',
+    getNarratorDetails: 'narrator',
+  };
+
+  const handleViewAll = () => {
+    if (!method || !id_key || !id) return;
+
+    const listingMethod = listingMethodMap[method] ?? method;
+    const keyType = keyTypeMap[method] ?? 'author';
+
+    router.push({
+      pathname: '/storyView',
+      params: {
+        title: person?.name ?? title ?? '',
+        api_method: listingMethod, // was: method
+        key_type: keyType,         // was: not sent at all
+        view_type: 'grid',         // was: not sent at all
+        [id_key]: id,              // was: sent as separate id_key/id
+      },
+    });
+  };
 
   // =====================================================
   // LOADING STATE
@@ -273,7 +357,7 @@ export default function AuthorDetailsScreen() {
           </Text>
 
           <TouchableOpacity
-            onPress={fetchAuthorDetails}
+            onPress={fetchDetails}
             style={styles.retryButton}
           >
             <Text style={styles.retryLabel}>
@@ -320,7 +404,7 @@ export default function AuthorDetailsScreen() {
             style={[
               StyleSheet.absoluteFillObject,
               {
-                backgroundColor: '#86915079',
+                backgroundColor: heroColor,
               },
             ]}
           />
@@ -360,24 +444,24 @@ export default function AuthorDetailsScreen() {
           ]}
         >
           <Pressable
-  hitSlop={10}
-  style={styles.headerButton}
-  onPress={() => {
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace('/author');
-    }
-  }}
->
-  <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
-</Pressable>
+            hitSlop={10}
+            style={styles.headerButton}
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace('/');
+              }
+            }}
+          >
+            <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
+          </Pressable>
 
           <Text
             style={styles.headerTitle}
             numberOfLines={1}
           >
-            {author?.name ?? 'Unknown Author'}
+            {person?.name ?? title ?? 'Unknown'}
           </Text>
 
           <View
@@ -404,9 +488,9 @@ export default function AuthorDetailsScreen() {
             <Image
               source={{
                 uri:
-                  author?.avatar?.trim?.() ||
+                  person?.avatar?.trim?.() ||
                   `https://api.dicebear.com/9.x/initials/png?seed=${encodeURIComponent(
-                    author?.name ?? 'Author'
+                    person?.name ?? 'User'
                   )}`,
               }}
               style={[
@@ -434,12 +518,12 @@ export default function AuthorDetailsScreen() {
               },
             ]}
           >
-            {author?.description ? (
+            {person?.description ? (
               <>
                 <RenderHtml
                   contentWidth={width}
                   source={{
-                    html: author.description,
+                    html: person.description,
                   }}
                   tagsStyles={{
                     body: {
@@ -486,26 +570,13 @@ export default function AuthorDetailsScreen() {
           >
             <Text style={[styles.sectionTitle, { marginTop: 0 }]}>
               Stories
-              {author?.storyCount
-                ? ` (${author.storyCount})`
+              {person?.storyCount
+                ? ` (${person.storyCount})`
                 : ''}
             </Text>
 
             {episodes.length > 10 && (
-              <TouchableOpacity
-                onPress={() =>
-                  router.push({
-                    pathname: '/storyView',
-                    params: {
-                      title: author?.name ?? '',
-                      view_type: 'author',
-                      key_type: 'author_id',
-                      api_method: 'getAuthorDetails',
-                      author_id: author_id,
-                    },
-                  })
-                }
-              >
+              <TouchableOpacity onPress={handleViewAll}>
                 <Text
                   style={{
                     color: '#ffffff',

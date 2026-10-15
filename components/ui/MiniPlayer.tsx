@@ -10,8 +10,8 @@ import {
 } from 'react-native';
 import { useSelector } from 'react-redux';
 
-import { usePlayer } from '../providers/PlayerProvider';
-import { RootState } from '../redux/store';
+import { usePlayer } from '../../providers/PlayerProvider';
+import { RootState } from '../../redux/store';
 
 export function MiniPlayer() {
   /* =========================================================
@@ -347,7 +347,7 @@ const styles = StyleSheet.create({
     right: 8,
 
     // 👇 Footer
-    bottom: 90,
+    bottom: 95,
 
     backgroundColor: '#1C1C1C',
 

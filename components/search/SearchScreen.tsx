@@ -2,7 +2,7 @@ import axios from '@/axios.config';
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import type { TFunction } from "i18next";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
@@ -16,7 +16,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Path } from "react-native-svg";
 import styles, { COLORS } from "./style";
-
+import { useFocusRefetch } from "../../hooks/useFocusRefetch";
+import ProfileDot from "@/components/ui/ProfileDot";
 /* ---------- API types (matches the real getSearchPageData response) ---------- */
 
 interface ApiCategory {
@@ -189,24 +190,34 @@ function goToCategoryStories(category: ApiCategory) {
     params: {
       title: category.name,
       view_type: "grid",
-      key_type: "category",
-      api_method: "getCategoryStories",
-      category_id: String(category.id),
+      key_type: String(category.id),
+      api_method: "getStoryListViewAll",
+      // category_id: String(category.id),
     },
   });
 }
 
 function goToNarratorDetails(narrator: ApiNarrator) {
+ 
   router.push({
-    pathname: "/",
-    params: { narrator_id: narrator.id.toString() },
-  });
+        pathname: '/author-details',
+        params: {
+          method: 'getNarratorDetails',
+          id_key: 'narrator_id',
+          id: narrator.id.toString(),
+          title: 'Narrator',
+        },
+      });
 }
 
 function goToAuthorDetails(author: ApiAuthor) {
   router.push({
     pathname: "/author-details",
-    params: { author_id: author.id.toString() },
+    params: { id: author.id.toString(),
+      method: 'getAuthorDetails',
+      id_key: 'author_id',
+      title: 'Author',
+     },
   });
 }
 
@@ -366,12 +377,13 @@ const SearchScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
 
   const [data, setData] = useState<SearchScreenData | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchSearchScreenData = useCallback(async () => {
+  // Refetches every time this screen comes into focus (not just on first
+  // mount), so switching language and coming back always shows fresh data.
+  // `loading` comes from the hook — no separate useState/useEffect needed.
+  const { loading, refetch: fetchSearchScreenData } = useFocusRefetch(async () => {
     try {
-      setLoading(true);
       setError(null);
 
       const { data: res } = await axios.post("/", {
@@ -395,14 +407,8 @@ const SearchScreen: React.FC = () => {
           ? t("search.noInternet")
           : t("search.somethingWentWrong")
       );
-    } finally {
-      setLoading(false);
     }
-  }, [t]);
-
-  useEffect(() => {
-    fetchSearchScreenData();
-  }, [fetchSearchScreenData]);
+  });
 
   if (loading && !data) {
     return (
@@ -457,17 +463,8 @@ const SearchScreen: React.FC = () => {
 
         <View style={[styles.topbar, { paddingTop: insets.top + 8 }]}>
           <Text style={styles.screenTitle}>{t("search.title")}</Text>
-
-          <TouchableOpacity
-            style={styles.profileDot}
-            activeOpacity={0.7}
-            onPress={() => router.push("/profile")}
-            accessibilityRole="button"
-            accessibilityLabel={t("search.openProfile")}
-          >
-            <LinearGradient colors={["#e85c3f", "#d9a441"]} style={StyleSheet.absoluteFillObject} />
-            <Text style={styles.profileDotText}>S</Text>
-          </TouchableOpacity>
+        <ProfileDot dotStyle={styles.profileDot} textStyle={styles.profileDotText} />
+          
         </View>
 
         {/* ---------- search bar (tap -> navigate to live search results screen) ---------- */}
@@ -501,7 +498,7 @@ const SearchScreen: React.FC = () => {
           <View style={styles.section}>
             <SectionHeader
               title={data?.narratorsTitle ?? ""}
-              onViewAll={() => router.push("/albums")}
+              onViewAll={() => router.push("/narrator")}
             />
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.narratorRow}>
@@ -551,4 +548,3 @@ const SearchScreen: React.FC = () => {
 
 export default SearchScreen;
 
-/* ---------- styles ---------- */

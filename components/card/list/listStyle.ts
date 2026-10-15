@@ -1,9 +1,7 @@
 import { StyleSheet } from 'react-native';
 
- export const COLORS = {
-
-
-   bgDeep: "#171717",       // home.wrapBg — main background
+export const COLORS = {
+  bgDeep: "#171717",       // home.wrapBg — main background
   bgSurface: "#1b2426",    // home.panel — cards, chips
   bgSurface2: "#212b2d",   // home.panel2 — nested surfaces
   bgElevated: "#131a1c",   // konjam dark-a, miniplayer/elevated bg
@@ -13,33 +11,31 @@ import { StyleSheet } from 'react-native';
   orange: "#e3c948",       // home.yellow — secondary accent
   textHi: "#f3eff7",       // home.text1 — titles
   textMid: "#a9b3b0",      // home.text2 — subtitles
-  textLow: "#75807d",   
+  textLow: "#75807d",
   greenUp: "#4FCB8D",
-  
-
 };
 
 
 const styles = StyleSheet.create({
   screen: {
-      flex: 1,
-      backgroundColor: COLORS.bgDeep,
-    },
-    scrollContent: {
-      paddingBottom: 190,
-    },
-  
-    bgFill: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: "#2E635B",
-    },
-    bgOverlay: {
-      position: "absolute",
-      left: 0,
-      right: 0,
-      top: 0,
-      bottom: 0,
-    },
+    flex: 1,
+    backgroundColor: COLORS.bgDeep,
+  },
+  scrollContent: {
+    paddingBottom: 190,
+  },
+
+  bgFill: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#2E635B",
+  },
+  bgOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+  },
   /* header */
   pageHeader: {
     paddingHorizontal: 18,
@@ -252,6 +248,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
+  /* heart + play button, side by side on the right of the row */
+  rowActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   rowPlayBtn: {
     width: 36,
     height: 36,
@@ -353,11 +355,10 @@ const styles = StyleSheet.create({
     color: COLORS.textLow,
   },
   rowCoverImage: {
-  width: "100%",
-  height: "100%",
-  borderRadius: 8, 
-   },
+    width: "100%",
+    height: "100%",
+    borderRadius: 8,
+  },
 });
 
 export default styles;
-

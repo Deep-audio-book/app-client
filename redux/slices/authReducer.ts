@@ -19,13 +19,13 @@ const initialState: AuthState = {
 
 const STORAGE_KEY = '@audiobooks_user_data';
 
-// App open aagும்போது stored user ah load pண்ண
+// App open time check if user data is present in async storage or not, if present then set the user data in state
 export const loadUser = createAsyncThunk('auth/loadUser', async () => {
   const storedUser = await AsyncStorage.getItem(STORAGE_KEY);
   return storedUser ? JSON.parse(storedUser) : null;
 });
 
-// Login aana user ah save pண்ண
+// when login that time store user data in async storage and return the user data
 export const loginUser = createAsyncThunk(
   'auth/loginUser',
   async (userData: UserData) => {
@@ -34,7 +34,7 @@ export const loginUser = createAsyncThunk(
   }
 );
 
-// Logout pண்ண
+// Logout
 export const logoutUser = createAsyncThunk('auth/logoutUser', async () => {
   await AsyncStorage.removeItem(STORAGE_KEY);
 });

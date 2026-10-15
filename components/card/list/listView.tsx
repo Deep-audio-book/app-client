@@ -1,6 +1,6 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import React from "react";
+import React, { useEffect } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -13,8 +13,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Path, Rect } from "react-native-svg";
 
 import ProgressRingPlayButton from "@/components/ui/ProgressRingPlayButton";
+import WishlistHeart from "@/components/ui/WishlistHeart";
+import { storyWishlisted, useWishlistStore } from "@/redux/slices/wishlistStore";
 import { Story } from "@/type/story";
 import styles, { COLORS } from "./listStyle";
+import { useTranslation } from "react-i18next";
 
 /* =========================================================
    PROPS
@@ -129,6 +132,7 @@ const TrendingRow: React.FC<{
 
   const totalSeconds = getDurationInSeconds(item.story_duration_seconds);
   const listenedSeconds = Number(item.last_listened_seconds ?? 0);
+  const { t } = useTranslation();
 
   const progress =
     isContinueListening && totalSeconds > 0
@@ -192,7 +196,7 @@ const TrendingRow: React.FC<{
 
         {!!item.narrator && (
           <Text style={[styles.rowAuthor, { opacity: 0.75 }]} numberOfLines={1}>
-            Voice: {item.narrator}
+            {t("home.voice")}: {item.narrator}
           </Text>
         )}
 
@@ -212,19 +216,27 @@ const TrendingRow: React.FC<{
       </View>
 
       {/* =================================================
-          PLAY BUTTON — same position/size as before, now
-          with an optional progress ring drawn around it
-          instead of a separate "RESUME %" label underneath.
+          ACTIONS: heart (like) + play button.
+          Heart is the shared component (global store), same one
+          used on Home, Grid and Album; pink + filled when liked.
       ================================================= */}
 
-      <ProgressRingPlayButton
-        style={styles.rowPlayBtn}
-        active={isContinueListening}
-        progress={progress}
-        ringColor={COLORS.gold}
-      >
-        <PlayIcon />
-      </ProgressRingPlayButton>
+      <View style={styles.rowActions}>
+        <WishlistHeart
+          storyId={item.id}
+          initialLiked={storyWishlisted(item)}
+          size={18}
+        />
+
+        <ProgressRingPlayButton
+          style={styles.rowPlayBtn}
+          active={isContinueListening}
+          progress={progress}
+          ringColor={COLORS.gold}
+        >
+          <PlayIcon />
+        </ProgressRingPlayButton>
+      </View>
     </TouchableOpacity>
   );
 };
@@ -248,6 +260,21 @@ const StoryListView: React.FC<StoryListViewProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
 
+  const { t } = useTranslation();
+
+  /* =======================================================
+     SEED GLOBAL WISHLIST STORE
+
+     Stories load aana udane avanga like status ah store la
+     podrom. Store la already value irundha overwrite aagadhu.
+  ======================================================= */
+
+  useEffect(() => {
+    if (stories?.length) {
+      useWishlistStore.getState().seedMany(stories as any[]);
+    }
+  }, [stories]);
+
   /* =======================================================
      SWITCH TO GRID
   ======================================================= */
@@ -268,7 +295,7 @@ const StoryListView: React.FC<StoryListViewProps> = ({
     value: string | string[] | undefined,
     chip: string
   ) => {
-    if (chip.toLowerCase() === "all") return true;
+    if (chip.toLowerCase() === t("common.all").toLowerCase()) return true;
     const target = chip.trim().toLowerCase();
 
     if (Array.isArray(value)) {

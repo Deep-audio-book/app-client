@@ -352,6 +352,11 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: COLORS.textLow,
   },
+  rowCoverImage: {
+  width: "100%",
+  height: "100%",
+  borderRadius: 8, 
+   },
 });
 
 export default styles;

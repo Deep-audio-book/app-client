@@ -48,11 +48,11 @@ export function SignInScreen() {
           email_id: email,
           password: password,
         },
-        { timeout: 15000 } // ✅ 15 sec timeout - hang aaga kudathu
+        { timeout: 15000 } // 15 sec timeout - hang aaga kudathu
       );
 
       if (data.statusCode === 200) {
-        // ✅ username & email Redux + AsyncStorage 
+        // username & email Redux + AsyncStorage 
         await dispatch(loginUser({
           username: data.data.firstName,
           email: data.data.email,

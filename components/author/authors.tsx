@@ -1,7 +1,7 @@
 import axios from '@/axios.config';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -19,7 +19,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import styles from './style';
-
+import { useFocusRefetch } from "../../hooks/useFocusRefetch";
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
@@ -95,17 +95,17 @@ function AuthorRow({
       android_ripple={{ color: 'rgba(255,255,255,0.08)' }}
     >
       <Image
-  source={{
-    uri:
-      author.avatar?.trim() ||
-      `https://api.dicebear.com/9.x/initials/png?seed=${encodeURIComponent(author.name)}`,
-  }}
-  style={{
-    width: avatarSize,
-    height: avatarSize,
-    borderRadius: avatarSize / 2,
-  }}
-/>
+        source={{
+          uri:
+            author.avatar?.trim() ||
+            `https://api.dicebear.com/9.x/initials/png?seed=${encodeURIComponent(author.name)}`,
+        }}
+        style={{
+          width: avatarSize,
+          height: avatarSize,
+          borderRadius: avatarSize / 2,
+        }}
+      />
 
       <View style={styles.rowInfo}>
         <Text style={styles.artistName} numberOfLines={1}>
@@ -138,8 +138,22 @@ export default function AuthorScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
+  // Everything comes from the previous screen now — nothing is hardcoded.
+  // Defaults kept so any existing navigation calls without params still work.
+  const params = useLocalSearchParams<{
+    method?: string;        // API method to fetch THIS list (e.g. getAllAuthors / getAllNarrators)
+    dataKey?: string;       // section.type to match in the response (e.g. all-authors / all-narrators)
+    title?: string;         // header title (fallback, before API title arrives)
+    detailMethod?: string;  // API method author-details should call (e.g. getAuthorDetails / getNarratorDetails)
+    idKey?: string;         // param key author-details expects (e.g. author_id / narrator_id)
+  }>();
+
+  const method = params.method || 'getAllAuthors';
+  const dataKey = params.dataKey || 'all-authors';
+  const detailMethod = params.detailMethod || 'getAuthorDetails';
+  const idKey = params.idKey || 'author_id';
+
   const scaleFactor = clamp(width / DESIGN_WIDTH, 0.85, 1.35);
-  // const avatarSize = Math.round(clamp(62 * scaleFactor, 52, 78));
   const avatarSize = 68;
 
   const contentWidth = Math.min(width, MAX_CONTENT_WIDTH);
@@ -147,36 +161,45 @@ export default function AuthorScreen() {
   const heroHeight = insets.top + 600;
 
   const [authors, setAuthors] = useState<Author[]>([]);
-  const [title, setTitle] = useState('Authors');
-  const [loading, setLoading] = useState(true);
+  const [title, setTitle] = useState(params.title || 'Authors');
   const [error, setError] = useState<string | null>(null);
 
-  const fetchAuthors = useCallback(async () => {
+  // Refetches every time this screen comes into focus.
+  // `loading` and `refetch` are handled by the hook.
+  const {
+    loading,
+    refetch: fetchAuthors,
+  } = useFocusRefetch(async () => {
     try {
-      setLoading(true);
       setError(null);
 
-      const { data } = await axios.post('/', {
-        method: 'getAllAuthors',
+      const { data: res } = await axios.post("/", {
+        method, // dynamic — depends on which screen navigated here
       });
-
-      if (data.statusCode === 200) {
-        const section = data.data.find(
-          (item: any) => item.type === 'all-authors'
+     
+      if (res.statusCode === 200) {
+        const section = res.data?.find(
+          (item: any) => item.type === dataKey // dynamic
         );
 
         setAuthors(section?.data ?? []);
-        setTitle(section?.title || 'Authors');
+        setTitle(section?.title ?? params.title ?? 'Authors');
       } else {
-        setError(data.msg);
+        setError(res.msg || "Failed to load authors");
       }
-    } catch (e) {
-      console.log(e);
-      setError('Something went wrong');
-    } finally {
-      setLoading(false);
+    } catch (err: any) {
+      console.log("Error code:", err.code);
+      console.log("Error message:", err.message);
+      console.log("Error response:", err.response);
+
+      setAuthors([]);
+      setError(
+        err.code === "ECONNABORTED" || err.message === "Network Error"
+          ? "No internet connection"
+          : "Something went wrong"
+      );
     }
-  }, []);
+  });
 
   useEffect(() => {
     fetchAuthors();
@@ -191,12 +214,20 @@ export default function AuthorScreen() {
     []
   );
 
+  // method + id_key passed to author-details now come from THIS screen's
+  // own params (detailMethod / idKey), which in turn came from whichever
+  // screen navigated here.
   const handleAuthorPress = useCallback((author: Author) => {
     router.push({
-      pathname: '/author-details', // adjust to match your actual route path
-      params: { author_id: author.id.toString() },
+      pathname: '/author-details',
+      params: {
+        method: detailMethod,
+        id_key: idKey,
+        id: author.id.toString(),
+        title: 'Author',
+      },
     });
-  }, []);
+  }, [detailMethod, idKey]);
 
   const renderItem = useCallback(
     ({ item }: ListRenderItemInfo<Author>) => (
@@ -268,49 +299,28 @@ export default function AuthorScreen() {
             </View>
 
             <View
-          style={[
-            styles.header,
-            {
-              paddingTop: Math.max(
-                insets.top,
-                12
-              ),
-            },
-          ]}
-        >
-          {/* Back Button */}
+              style={[
+                styles.header,
+                {
+                  paddingTop: Math.max(insets.top, 12),
+                },
+              ]}
+            >
+              {/* Back Button */}
+              <Pressable hitSlop={10} style={styles.headerButton} onPress={() => router.back()}>
+                <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
+              </Pressable>
 
-          {/* <TouchableOpacity
-            style={styles.circleButton}
-            onPress={() => router.back()}
-            activeOpacity={0.8}
-          >
-            <ArrowLeftIcon />
-          </TouchableOpacity> */}
+              {/* Title */}
+              <Text style={styles.headerTitle} numberOfLines={1}>
+                {title}
+              </Text>
 
-          <Pressable hitSlop={10} style={styles.headerButton} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
-        </Pressable>
-
-          {/* Title */}
-
-          <Text
-            style={styles.headerTitle}
-            numberOfLines={1}
-          >
-            {title}
-          </Text>
-
-          {/* Right Placeholder */}
-
-          <View
-            style={
-              styles.circleButtonPlaceholder
-            }
-          >
-            {/* <SearchIcon /> */}
-          </View>
-        </View>
+              {/* Right Placeholder */}
+              <View style={styles.circleButtonPlaceholder}>
+                {/* <SearchIcon /> */}
+              </View>
+            </View>
 
             {error && (
               <Text

@@ -1,8 +1,8 @@
 import axios from '@/axios.config';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -18,6 +18,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, SvgUri } from 'react-native-svg';
 import styles from './style';
+import { useFocusRefetch } from "../../hooks/useFocusRefetch";
 
 const DESIGN_WIDTH = 393;
 const MAX_CONTENT_WIDTH = 520;
@@ -52,10 +53,6 @@ type Genre = {
   background?: string | null;
 };
 
-type GenreScreenProps = {
-  onBack?: () => void;
-};
-
 function SearchIcon() {
   return (
     <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
@@ -78,6 +75,23 @@ export default function GenreScreen() {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
 
+  // Everything comes from the previous screen now — nothing is hardcoded.
+  // Defaults kept so any existing navigation calls without params still work.
+  const params = useLocalSearchParams<{
+    method?: string;      // API method to fetch THIS list (e.g. getAllGenre)
+    dataKey?: string;     // section.type to match in the response (e.g. all-genres)
+    title?: string;       // header title (fallback, before API title arrives)
+    detailMethod?: string;   // API method storyView should call (e.g. getGenreStories)
+    keyType?: string;     // key_type storyView expects (e.g. genre)
+    idKey?: string;       // param name storyView expects for the id (e.g. genre_id)
+  }>();
+
+  const method = params.method || 'getAllGenre';
+  const dataKey = params.dataKey || 'all-genres';
+  const apiMethod = params.detailMethod || 'getGenreStories';
+  const keyType = params.keyType || 'genre';
+  const idKey = params.idKey || 'genre_id';
+
   const scaleFactor = clamp(width / DESIGN_WIDTH, 0.85, 1.35);
 
   const scale = (value: number) =>
@@ -98,17 +112,17 @@ export default function GenreScreen() {
     NUM_COLUMNS;
 
   const [genres, setGenres] = useState<Genre[]>([]);
-  const [title, setTitle] = useState('Genres');
-  const [loading, setLoading] = useState(true);
+  const [title, setTitle] = useState(params.title || 'Genres');
   const [error, setError] = useState<string | null>(null);
 
-  const fetchGenres = useCallback(async () => {
+  // Refetches every time this screen comes into focus.
+  // `loading` is handled by the hook — no manual useState/useEffect needed.
+  const { loading } = useFocusRefetch(async () => {
     try {
-      setLoading(true);
       setError(null);
 
       const { data } = await axios.post('/', {
-        method: 'getAllGenre',
+        method, // dynamic — depends on which screen navigated here
       });
 
       if (data.statusCode === 200) {
@@ -116,10 +130,10 @@ export default function GenreScreen() {
 
         const genreSection = sections.find(
           (section: any) =>
-            section.type === 'all-genres'
+            section.type === dataKey // dynamic
         );
 
-        setTitle(genreSection?.title || 'Genres');
+        setTitle(genreSection?.title || params.title || 'Genres');
 
         setGenres(
           Array.isArray(genreSection?.data)
@@ -137,33 +151,34 @@ export default function GenreScreen() {
       setError(
         'Something went wrong. Please try again.'
       );
-    } finally {
-      setLoading(false);
     }
-  }, []);
-
-  useEffect(() => {
-    fetchGenres();
-  }, [fetchGenres]);
+  });
 
   /**
    * Genre click handler
+   * api_method / key_type / id_key passed to storyView now come from
+   * THIS screen's own params (apiMethod / keyType / idKey), which in turn
+   * came from whichever screen navigated here.
    */
+  // console.log('GenreScreen params:', {
+  //   method,
+  //   dataKey,
+  //   title,
+  //   apiMethod,
+  //   keyType,
+  //   idKey,
+  // });
   const handleGenrePress = (item: Genre) => {
-
-    // console.log("title:",item.name);
-
     router.push({
       pathname: '/storyView',
       params: {
         title: item.name,
         view_type: 'grid',
-        key_type: 'genre',
-        api_method: 'getGenreStories',
-        genre_id: String(item.id),
+        key_type: keyType,
+        api_method: apiMethod,
+        [idKey]: String(item.id),
       },
     });
-    
   };
 
   return (
@@ -229,18 +244,18 @@ export default function GenreScreen() {
           {/* Back Button */}
 
           <Pressable
-  hitSlop={10}
-  style={styles.headerButton}
-  onPress={() => {
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace('/author');
-    }
-  }}
->
-  <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
-</Pressable>
+            hitSlop={10}
+            style={styles.headerButton}
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace('/author');
+              }
+            }}
+          >
+          <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
+        </Pressable>
 
           {/* Title */}
 

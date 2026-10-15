@@ -19,7 +19,7 @@ export const COLORS = {
 /* ---------- styles ---------- */
 
 const styles = StyleSheet.create({
-  
+
   screen: {
     flex: 1,
     backgroundColor: COLORS.bgDeep,
@@ -175,10 +175,19 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0.5,
   },
+
+  /* heart on the cover (top-right), same as home screen */
+  relHeart: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+  },
+
+  /* day badge moved to bottom-left of the cover */
   relDayBadge: {
     position: "absolute",
-    top: 8,
-    right: 8,
+    bottom: 8,
+    left: 8,
     backgroundColor: "rgba(0,0,0,0.5)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.2)",
@@ -191,10 +200,9 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "700",
   },
+
+  /* play button now sits in the card body (not on the cover) */
   relPlayBtn: {
-    position: "absolute",
-    bottom: 10,
-    right: 10,
     width: 34,
     height: 34,
     borderRadius: 17,
@@ -210,7 +218,7 @@ const styles = StyleSheet.create({
   relBody: {
     paddingHorizontal: 10,
     paddingTop: 9,
-    paddingBottom: 11,
+    paddingBottom: 10,
   },
   relTitle: {
     fontSize: 12.5,
@@ -223,9 +231,21 @@ const styles = StyleSheet.create({
     color: COLORS.textLow,
     marginTop: 3,
   },
+
+  /* genre (left) + play button (right) */
+  relFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 8,
+  },
+  relFooterLeft: {
+    flex: 1,
+    paddingRight: 8,
+    justifyContent: "center",
+  },
   relTag: {
     alignSelf: "flex-start",
-    marginTop: 6,
     backgroundColor: COLORS.bgSurface2,
     borderWidth: 1,
     borderColor: COLORS.line,

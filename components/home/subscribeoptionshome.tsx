@@ -1,11 +1,14 @@
 import axios from '@/axios.config';
+import WishlistHeart from "@/components/ui/WishlistHeart";
+import { storyWishlisted, useWishlistStore } from "@/redux/slices/wishlistStore";
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useRouter } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
+  Animated,
   Image,
   Linking,
   Pressable,
@@ -14,11 +17,13 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Path, Rect, SvgUri } from "react-native-svg";
-import styles, { BED_COVERS, COLORS, COVERS } from "./style";
+import styles, { BED_COVERS, CARD_H, CARD_RADIUS, CARD_W, COLORS, COVERS } from "./style";
+import ProfileDot from '../ui/ProfileDot';
 
 /* ---------- API types ---------- */
 
@@ -75,6 +80,30 @@ interface ConnectLinks {
 
 type HeroMode = "explore" | "resume";
 
+/*
+ * Two home-page experiences:
+ *  - "buy"        -> individual book purchase browsing (price tags + cart).
+ *  - "unlimited"  -> subscription browsing ("Unlimited" pill, subscribe banner).
+ *
+ * WHO SEES WHAT
+ *  - New user / expired plan  -> isSubscribed = false -> Buy + Unlimited
+ *                                switch is shown (both options).
+ *  - Active subscriber        -> isSubscribed = true  -> no switch, no buy
+ *                                option, no price tags, no subscribe banner.
+ *                                Everything is "Unlimited".
+ *
+ * The backend must return `is_subscribed: true | false` at the top level of
+ * the `getHomepageData` response (false when the plan has expired).
+ */
+type HomeExperience = "buy" | "unlimited";
+
+/*
+ * Which story-row is rendered as the swipeable "New releases" carousel.
+ * Either send `variant: "carousel"` from the API, or make the section's
+ * key_type one of the values below (change to match your backend).
+ */
+const NEW_RELEASE_KEY_TYPES = ["new_releases", "new-releases", "new_release", "new"];
+
 interface HeroSection {
   type: "hero";
   mode: HeroMode;
@@ -86,14 +115,14 @@ type Section =
   | HeroSection
   | { type: "trending-genres"; data: ApiTrendingGenre[] }
   | { type: "resume"; data: ApiStory[] }
-  | { type: "featured-books"; title: string; data: ApiStory[]; view_type: string ; key_type: string}
+  | { type: "featured-books"; title: string; data: ApiStory[]; view_type: string; key_type: string }
   | {
       type: "story-row";
       title: string;
       data: ApiStory[];
       view_type: string;
       key_type: string;
-      variant?: "default" | "bed";
+      variant?: "default" | "bed" | "carousel";
     }
   | { type: "author-row"; title: string; data: ApiAuthor[] }
   | { type: "genre-grid"; title: string; data: ApiGenre[] }
@@ -119,7 +148,7 @@ const LanguageIcon = ({ size = 15, color = COLORS.text1 }: IconProps) => (
     <Path d="M5.5 7.5h6M5.5 9.8h4" strokeWidth={1.4} />
     <Path
       d="M20.5 9.5h-6A1.5 1.5 0 0013 11v5a1.5 1.5 0 001.5 1.5H16v2.3l2.7-2.3h1.8A1.5 1.5 0 0022 16v-5a1.5 1.5 0 00-1.5-1.5Z"
-      fill={color === "#fff" ? "none" : "none"}
+      fill="none"
     />
     <Path d="M15.3 12.6h5.4M15.3 14.9h3.5" strokeWidth={1.4} />
   </Svg>
@@ -148,22 +177,6 @@ const BookIcon = ({ size = 8, color = "#fff" }: IconProps) => (
 const MoonIcon = ({ size = 16, color = COLORS.lav }: IconProps) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
     <Path d="M20 14.5A8.5 8.5 0 119.5 4a7 7 0 1010.5 10.5Z" />
-  </Svg>
-);
-
-const StarIcon = ({ size = 11, color = COLORS.gold }: IconProps) => (
-  <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
-    <Path d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6-5.9-3.3-5.9 3.3 1.3-6.6-4.9-4.6 6.6-.8Z" />
-  </Svg>
-);
-
-const HeartIcon = ({
-  size = 14,
-  color = "#fff",
-  filled = false,
-}: IconProps & { filled?: boolean }) => (
-  <Svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? color : "none"} stroke={color} strokeWidth={filled ? 0 : 2}>
-    <Path d="M12 20.5s-7.5-4.6-10-9.3C.5 7.8 2.4 4.5 6 4.5c2 0 3.4 1 6 3.4 2.6-2.4 4-3.4 6-3.4 3.6 0 5.5 3.3 4 6.7-2.5 4.7-10 9.3-10 9.3Z" />
   </Svg>
 );
 
@@ -221,6 +234,12 @@ const YoutubeIcon = ({ size = 11, color = COLORS.text2 }: IconProps) => (
   </Svg>
 );
 
+const CrownIcon = ({ size = 14, color = "#241b2c" }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+    <Path d="M3 8l4 3 5-6 5 6 4-3-2 10H5L3 8Z" />
+  </Svg>
+);
+
 /* ---------- helpers ---------- */
 
 function isSvgUrl(url: string): boolean {
@@ -269,6 +288,10 @@ function formatResumeProgress(story: ApiStory): string | null {
   return `${Math.round(story.resume_percentage)}%`;
 }
 
+function isNewReleaseSection(section: { key_type?: string; variant?: string }): boolean {
+  return section.variant === "carousel" || NEW_RELEASE_KEY_TYPES.includes(String(section.key_type));
+}
+
 function goToStoryEpisode(storyId: number) {
   router.push({
     pathname: "/storyEpisode",
@@ -292,7 +315,12 @@ function goToGenreStories(genre: { id: number; name: string }) {
 function goToAuthorDetails(author: ApiAuthor) {
   router.push({
     pathname: "/author-details",
-    params: { author_id: author.id.toString() },
+    params: {
+      id: author.id.toString(),
+      method: 'getAuthorDetails',
+      id_key: 'author_id',
+      title: 'Author',
+    },
   });
 }
 
@@ -304,70 +332,31 @@ function goToLanguageSettings() {
   router.push({ pathname: "/language" });
 }
 
-/* ---------- rating badge ---------- */
+// Placeholder route for the subscription / plans screen.
+function goToSubscribe() {
+  router.push({ pathname: "/subscribehome" });
+}
 
-const RatingBadge: React.FC<{ rating?: number; size?: number }> = ({ rating, size = 11 }) => {
-  if (!rating) return null;
+/*
+ * Homepage response la irukkura ellaa stories (hero + rows) oda like status ah
+ * global wishlist store la seed panradhu. Appo ellaa screen um sync la irukkum.
+ */
+function seedWishlistFromSections(list: any[]) {
+  const stories: any[] = [];
 
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-      <StarIcon size={size} />
-      <Text style={styles.cardFootText}>{rating.toFixed(1)}</Text>
-    </View>
-  );
-};
+  for (const s of list) {
+    if (!s) continue;
+    if (Array.isArray(s.data)) {
+      stories.push(...s.data);
+    } else if (s.type === "hero" && s.data) {
+      stories.push(s.data);
+    }
+  }
 
-/* ---------- wishlist heart ---------- */
+  useWishlistStore.getState().seedMany(stories.filter((x) => x && x.id != null));
+}
 
-const WishlistHeart: React.FC<{
-  storyId: number;
-  initialLiked: boolean;
-  size?: number;
-}> = ({ storyId, initialLiked, size = 14 }) => {
-  const { t } = useTranslation();
-  const [liked, setLiked] = useState(initialLiked);
-  const [busy, setBusy] = useState(false);
-
-  const toggle = useCallback(
-    async (e: any) => {
-      e?.stopPropagation?.();
-      if (busy) return;
-
-      const next = !liked;
-      setLiked(next);
-      setBusy(true);
-
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-      try {
-        await axios.post("/", {
-          method: "toggleLike",
-          story_id: storyId,
-          like: next,
-        });
-      } catch (err) {
-        setLiked(!next);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [busy, liked, storyId]
-  );
-
-  return (
-    <TouchableOpacity
-      style={localStyles.heartBtn}
-      activeOpacity={0.75}
-      onPress={toggle}
-      accessibilityRole="button"
-      accessibilityLabel={liked ? t("home.removeFromFavorites") : t("home.addToFavorites")}
-    >
-      <HeartIcon size={size} filled={liked} color={liked ? "#e85c7a" : "#fff"} />
-    </TouchableOpacity>
-  );
-};
-
-/* ---------- price + add-to-cart ---------- */
+/* ---------- price + add-to-cart (available for a future cart-enabled detail screen) ---------- */
 
 function useAddToCart(storyId: number, initialInCart?: boolean) {
   const [inCart, setInCart] = useState(!!initialInCart);
@@ -434,51 +423,103 @@ const PriceCartBadge: React.FC<{
   );
 };
 
-/* ---------- author / narrator ("Voice: ...") block ---------- */
+/* ---------- access badge: price tag (buy mode) vs unlimited tag ---------- */
 
-const AuthorVoiceBlock: React.FC<{
-  author: string;
-  narrator?: string | null;
-  authorStyle: any;
-  voiceStyle: any;
-}> = ({ author, narrator, authorStyle, voiceStyle }) => {
+const AccessBadge: React.FC<{
+  experience: HomeExperience;
+  price?: number | null;
+  purchased?: boolean;
+}> = ({ experience, price, purchased }) => {
   const { t } = useTranslation();
 
-  return (
-    <>
-      <Text style={authorStyle} numberOfLines={1}>
-        {author}
-      </Text>
-
-      {!!narrator && (
-        <Text style={voiceStyle} numberOfLines={1}>
-          <Text style={{ color: COLORS.lavDim }}>{t("home.voice")}</Text>
-          {narrator}
+  if (experience === "unlimited") {
+    return (
+      <View style={[localStyles.accessPill, localStyles.accessPillUnlimited]}>
+        <CrownIcon size={10} color={COLORS.lav} />
+        <Text style={[localStyles.accessPillText, localStyles.accessPillTextUnlimited]} numberOfLines={1}>
+          {t("home.unlimitedTag")}
         </Text>
-      )}
-    </>
+      </View>
+    );
+  }
+
+  if (purchased) {
+    return (
+      <View style={localStyles.ownedPill}>
+        <Text style={localStyles.ownedPillText}>{t("home.owned")}</Text>
+      </View>
+    );
+  }
+
+  if (!price) return null;
+
+  return (
+    <View style={localStyles.accessPill}>
+      <Text style={[localStyles.accessPillText, localStyles.accessPillTextPrice]} numberOfLines={1}>
+        {formatPrice(price)}
+      </Text>
+    </View>
+  );
+};
+
+/* ---------- author block (single line, no voice/narrator row) ---------- */
+
+const AuthorText: React.FC<{
+  author: string;
+  authorStyle: any;
+}> = ({ author, authorStyle }) => (
+  <Text style={authorStyle} numberOfLines={1}>
+    {author}
+  </Text>
+);
+
+/* ---------- genre line (plain text under the title, not a badge) ---------- */
+
+const GenreText: React.FC<{
+  genre?: string | null;
+  genreStyle: any;
+}> = ({ genre, genreStyle }) => {
+  if (!genre) return null;
+  return (
+    <Text style={genreStyle} numberOfLines={1}>
+      {genre}
+    </Text>
   );
 };
 
 /* ---------- story row ---------- */
 
+// Thin divider between rows. marginVertical is 0 so the only space
+// around it comes from rowSec.paddingTop (above) and rowHead.marginTop (below).
 const WaveRule = () => (
   <View
     style={{
       height: StyleSheet.hairlineWidth,
       backgroundColor: "rgba(255,255,255,0.12)",
-      marginVertical: 4,
+      marginVertical: 0,
       width: "100%",
     }}
   />
 );
 
+/*
+ * Grid card: the cover only. It carries the wishlist heart (top-right)
+ * and the price / Unlimited pill (bottom-right). The title / genre /
+ * author lines under the cover are removed so no empty space is left
+ * between this row and the next. To bring them back, add the Text
+ * elements below the cover View and set cardCover.marginBottom to 8
+ * in style.ts.
+ *
+ * Size comes from the shared CARD_W x CARD_H (2:3) in style.ts, so a
+ * 600 x 900 cover image fits here, in the bed row and in the
+ * New releases carousel without cropping.
+ */
 const StoryCard: React.FC<{
   story: ApiStory;
   fallbackBg: [string, string];
-}> = ({ story, fallbackBg }) => {
+  experience: HomeExperience;
+}> = ({ story, fallbackBg, experience }) => {
   const { t } = useTranslation();
-  const duration = formatDuration(story.story_duration);
 
   return (
     <TouchableOpacity
@@ -496,39 +537,13 @@ const StoryCard: React.FC<{
         )}
 
         <View style={localStyles.heartCorner}>
-          <WishlistHeart storyId={story.id} initialLiked={story.like} size={18} />
+          <WishlistHeart storyId={story.id} initialLiked={storyWishlisted(story)} size={18} />
         </View>
 
-        <View style={localStyles.priceCartCorner}>
-          {/* <PriceCartBadge story={story} /> */}
+        <View style={localStyles.cardAccessCorner}>
+          <AccessBadge experience={experience} price={getStoryPrice(story)} purchased={story.purchased} />
         </View>
       </View>
-
-      <Text style={styles.cardTitle} numberOfLines={2}>
-        {story.title}
-      </Text>
-
-      <AuthorVoiceBlock
-        author={story.author}
-        narrator={story.narrator}
-        authorStyle={styles.cardNarrator}
-        voiceStyle={[styles.cardNarrator, { opacity: 0.75 }]}
-      />
-
-      <View style={[styles.cardFoot, { justifyContent: "space-between" }]}>
-        <RatingBadge rating={story.rating} size={10} />
-
-        {duration ? (
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <ClockIcon size={10} />
-            <Text style={styles.cardFootText}> {duration}</Text>
-          </View>
-        ) : (
-          <Text style={styles.cardFootText}>{t("home.listens", { count: story.listens })}</Text>
-        )}
-      </View>
-
-      {!!story.genre && <Text style={styles.cardGenre}>{story.genre}</Text>}
     </TouchableOpacity>
   );
 };
@@ -538,7 +553,8 @@ const StoryRow: React.FC<{
   stories: ApiStory[];
   view_type: string;
   key_type: string;
-}> = ({ title, stories, view_type, key_type }) => {
+  experience: HomeExperience;
+}> = ({ title, stories, view_type, key_type, experience }) => {
   const { t } = useTranslation();
 
   if (!stories.length) return null;
@@ -571,9 +587,257 @@ const StoryRow: React.FC<{
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rowScroll}>
         {stories.map((story, i) => (
-          <StoryCard key={`${story.id}-${i}`} story={story} fallbackBg={COVERS[i % COVERS.length]} />
+          <StoryCard key={`${story.id}-${i}`} story={story} fallbackBg={COVERS[i % COVERS.length]} experience={experience} />
         ))}
       </ScrollView>
+    </View>
+  );
+};
+
+/* ---------- New releases: looping coverflow carousel ---------- */
+
+/*
+ * Centre card is biggest, neighbours are smaller and tucked behind it.
+ * The list loops endlessly (stories are tripled and silently re-centred
+ * after every swipe), so the centre card ALWAYS has a card on both sides
+ * — on iOS and Android, even on the very first/last title.
+ * Cards stay opaque (far cards are dimmed with an overlay, not
+ * transparency). Card size comes from the shared CARD_W x CARD_H in
+ * style.ts (scaled down only on very small screens, ratio unchanged).
+ */
+const OVERLAP = 0.72; // distance between card centres, as a fraction of card width
+
+const SparkleIcon = ({ size = 16, color = COLORS.lav }: IconProps) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+    <Path d="M12 2l2.2 6.3L21 10l-6.8 1.7L12 18l-2.2-6.3L3 10l6.8-1.7L12 2Z" />
+  </Svg>
+);
+
+/*
+ * "NEW" badge on carousel covers.
+ *   "pill"   -> small glowing gradient pill, top-left (default, doesn't cover the art)
+ *   "ribbon" -> slim diagonal ribbon across the bottom-left corner
+ */
+const NEW_BADGE_STYLE = "pill" as "pill" | "ribbon";
+
+const NewBadge: React.FC<{ label: string }> = ({ label }) => {
+  if (NEW_BADGE_STYLE === "ribbon") {
+    return (
+      <View style={localStyles.newRibbon} pointerEvents="none">
+        <Text style={localStyles.newRibbonText}>{label}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={localStyles.newPillWrap} pointerEvents="none">
+      <LinearGradient
+        colors={["#FFD700", "#FFD700"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={localStyles.newPill}
+      >
+        <SparkleIcon size={9} color="#ec7a0f" />
+        <Text style={localStyles.newPillText}>{label}</Text>
+      </LinearGradient>
+    </View>
+  );
+};
+
+const NewReleaseCarousel: React.FC<{
+  title: string;
+  stories: ApiStory[];
+  view_type: string;
+  key_type: string;
+  experience: HomeExperience;
+}> = ({ title, stories, view_type, key_type, experience }) => {
+  const { t } = useTranslation();
+  const { width: winW } = useWindowDimensions();
+  const [boxW, setBoxW] = useState(winW - 28);
+
+  const n = stories.length;
+  const loop = n >= 3;
+  const base = loop ? n : 0; // first item of the middle copy
+  const data = useMemo(() => (loop ? [...stories, ...stories, ...stories] : stories), [stories, loop]);
+
+  const [rawActive, setRawActive] = useState(base);
+  const scrollX = useRef(new Animated.Value(0)).current;
+  const scrollRef = useRef<ScrollView>(null);
+  const lastRaw = useRef(base);
+
+  // Same size as every other card (CARD_W x CARD_H, 2:3). Only shrinks
+  // on very small screens so it never overflows; ratio stays the same.
+  const cardW = Math.min(CARD_W, boxW * 0.5);
+  const cardH = cardW * (CARD_H / CARD_W);
+  const itemW = cardW * OVERLAP;
+  const sidePad = (boxW - itemW) / 2;
+
+  // Start on the middle copy so there are cards on both sides.
+  useEffect(() => {
+    if (!n) return;
+    const x = base * itemW;
+    scrollX.setValue(x);
+    lastRaw.current = base;
+    setRawActive(base);
+    const id = setTimeout(() => scrollRef.current?.scrollTo({ x, animated: false }), 0);
+    return () => clearTimeout(id);
+  }, [n, base, itemW, scrollX]);
+
+  const onScroll = Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], {
+    useNativeDriver: true,
+    listener: (e: any) => {
+      const raw = Math.max(0, Math.min(data.length - 1, Math.round(e.nativeEvent.contentOffset.x / itemW)));
+      if (raw !== lastRaw.current) {
+        lastRaw.current = raw;
+        setRawActive(raw);
+        Haptics.selectionAsync();
+      }
+    },
+  });
+
+  // After a swipe settles near either end, jump (invisibly) to the same
+  // card in the middle copy.
+  const onMomentumEnd = (e: any) => {
+    if (!loop) return;
+    const raw = Math.round(e.nativeEvent.contentOffset.x / itemW);
+    if (raw < n || raw >= 2 * n) {
+      const next = base + (raw % n);
+      lastRaw.current = next;
+      setRawActive(next);
+      scrollRef.current?.scrollTo({ x: next * itemW, animated: false });
+    }
+  };
+
+  if (!n) return null;
+
+  const active = loop ? rawActive % n : Math.min(rawActive, n - 1);
+  const current = stories[active];
+
+  return (
+    <View style={localStyles.nrPanel}>
+      <LinearGradient
+        colors={["rgba(123,77,219,0.38)", "rgba(36,27,44,0.55)", "rgba(0,0,0,0.0)"]}
+        style={StyleSheet.absoluteFillObject}
+        pointerEvents="none"
+      />
+
+      {/* centred heading + small View all pill in the corner */}
+      <View style={localStyles.nrHeader}>
+        <View style={localStyles.nrTitleRow}>
+          <SparkleIcon size={15} />
+          <Text style={localStyles.nrTitle}>{title}</Text>
+        </View>
+        <Text style={localStyles.nrSubtitle}>
+          {t("home.newReleasesSubtitle", { defaultValue: "Fresh stories, just for you" })}
+        </Text>
+      </View>
+
+      <TouchableOpacity
+        style={localStyles.nrViewAll}
+        activeOpacity={0.85}
+        onPress={() => {
+          router.push({
+            pathname: "/storyView",
+            params: { title, view_type, key_type, api_method: 'getStoryListViewAll' },
+          });
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={t("home.viewAllOf", { title })}
+      >
+        <Text style={localStyles.nrViewAllText}>{t("home.viewAll")}</Text>
+      </TouchableOpacity>
+
+      <View onLayout={(e) => setBoxW(e.nativeEvent.layout.width)} style={{ width: "100%" }}>
+        <Animated.ScrollView
+          ref={scrollRef as any}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          snapToInterval={itemW}
+          snapToAlignment="start"
+          decelerationRate="fast"
+          disableIntervalMomentum
+          scrollEventThrottle={16}
+          onScroll={onScroll}
+          onMomentumScrollEnd={onMomentumEnd}
+          contentOffset={{ x: base * itemW, y: 0 }}
+          contentContainerStyle={{ paddingHorizontal: sidePad, paddingVertical: 10 }}
+          style={{ height: cardH + 20 }}
+        >
+          {data.map((story, i) => {
+            const inputRange = [(i - 2) * itemW, (i - 1) * itemW, i * itemW, (i + 1) * itemW, (i + 2) * itemW];
+
+            const scale = scrollX.interpolate({
+              inputRange,
+              outputRange: [0.7, 0.86, 1, 0.86, 0.7],
+              extrapolate: "clamp",
+            });
+            const dim = scrollX.interpolate({
+              inputRange,
+              outputRange: [0.55, 0.3, 0, 0.3, 0.55],
+              extrapolate: "clamp",
+            });
+
+            return (
+              <Animated.View
+                key={`${story.id}-${i}`}
+                style={{
+                  width: itemW,
+                  height: cardH,
+                  zIndex: 1000 - Math.abs(i - rawActive),
+                  transform: [{ scale }],
+                }}
+              >
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  style={[localStyles.carouselCard, { width: cardW, height: cardH, left: (itemW - cardW) / 2 }]}
+                  onPress={() => {
+                    if (i === rawActive) {
+                      goToStoryEpisode(story.id);
+                    } else {
+                      scrollRef.current?.scrollTo({ x: i * itemW, animated: true });
+                    }
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("home.openStory", { title: story.title })}
+                >
+                  {story.cover ? (
+                    <Image source={{ uri: story.cover }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+                  ) : (
+                    <LinearGradient colors={COVERS[i % COVERS.length]} style={StyleSheet.absoluteFillObject} />
+                  )}
+
+                  <NewBadge label={t("home.newTag", { defaultValue: "NEW" })} />
+
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[StyleSheet.absoluteFillObject, { backgroundColor: "#000", opacity: dim }]}
+                  />
+                </TouchableOpacity>
+              </Animated.View>
+            );
+          })}
+        </Animated.ScrollView>
+      </View>
+
+      {/* details for the centred card */}
+      <View style={localStyles.carouselInfo}>
+        <Text style={localStyles.carouselTitle} numberOfLines={1}>
+          {current.title}
+        </Text>
+        <View style={localStyles.carouselMetaRow}>
+          <Text style={localStyles.carouselAuthor} numberOfLines={1}>
+            {current.author}
+          </Text>
+          <AccessBadge experience={experience} price={getStoryPrice(current)} purchased={current.purchased} />
+        </View>
+      </View>
+
+      {/* position dots */}
+      <View style={localStyles.dotsRow}>
+        {stories.map((st, i) => (
+          <View key={`dot-${st.id}-${i}`} style={[localStyles.dot, i === active && localStyles.dotActive]} />
+        ))}
+      </View>
     </View>
   );
 };
@@ -585,7 +849,8 @@ const PerfectBeforeBedSection: React.FC<{
   stories: ApiStory[];
   view_type: string;
   key_type: string;
-}> = ({ title, stories, view_type, key_type }) => {
+  experience: HomeExperience;
+}> = ({ title, stories, view_type, key_type, experience }) => {
   const { t } = useTranslation();
 
   if (!stories.length) return null;
@@ -645,7 +910,7 @@ const PerfectBeforeBedSection: React.FC<{
                 <LinearGradient colors={["rgba(10,8,20,0)", "rgba(10,8,20,0.7)"]} style={StyleSheet.absoluteFillObject} />
 
                 <View style={localStyles.heartCorner}>
-                  <WishlistHeart storyId={story.id} initialLiked={story.like} size={18} />
+                  <WishlistHeart storyId={story.id} initialLiked={storyWishlisted(story)} size={18} />
                 </View>
 
                 <Text style={[styles.bedCoverTitle, { color: "#fff" }]} numberOfLines={2}>
@@ -658,28 +923,19 @@ const PerfectBeforeBedSection: React.FC<{
                   </View>
                 )}
 
-                {!!story.rating && (
-                  <View style={localStyles.bedRatingBadge}>
-                    <StarIcon size={10} />
-                    <Text style={localStyles.bedRatingBadgeText}>{story.rating.toFixed(1)}</Text>
-                  </View>
-                )}
+                <View style={localStyles.bedAccessCorner}>
+                  <AccessBadge experience={experience} price={getStoryPrice(story)} purchased={story.purchased} />
+                </View>
               </View>
 
+              {/* Details below the cover: title -> genre (plain text) -> author. */}
               <Text style={styles.bedCardTitle} numberOfLines={1}>
                 {story.title}
               </Text>
 
-              <AuthorVoiceBlock
-                author={story.author}
-                narrator={story.narrator}
-                authorStyle={styles.bedCardNarrator}
-                voiceStyle={[styles.bedCardNarrator, { opacity: 0.75 }]}
-              />
+              <GenreText genre={story.genre} genreStyle={styles.bedGenreText} />
 
-              <View style={{ flexDirection: "row", justifyContent: "flex-start", marginTop: 4 }}>
-                {/* <PriceCartBadge story={story} /> */}
-              </View>
+              <AuthorText author={story.author} authorStyle={styles.bedCardNarrator} />
             </TouchableOpacity>
           );
         })}
@@ -872,7 +1128,7 @@ const ConnectFooter: React.FC<{ links?: ConnectLinks }> = ({ links }) => {
 
 /* ---------- section dispatcher ---------- */
 
-function renderSection(section: Section, index: number): React.ReactNode {
+function renderSection(section: Section, index: number, experience: HomeExperience): React.ReactNode {
   switch (section.type) {
     case "trending-genres":
       return <TrendingGenreChips key={`chips-${index}`} genres={section.data} />;
@@ -881,7 +1137,7 @@ function renderSection(section: Section, index: number): React.ReactNode {
     case "story-row": {
       const variant = section.type === "story-row" ? section.variant : undefined;
 
-      const isBed = variant === "bed" || section.title?.trim().toLowerCase() === "perfect before bed";
+      const isBed = variant === "bed" || section.key_type === "5";
 
       if (isBed) {
         return (
@@ -891,6 +1147,21 @@ function renderSection(section: Section, index: number): React.ReactNode {
             stories={section.data}
             view_type={section.view_type}
             key_type={section.key_type}
+            experience={experience}
+          />
+        );
+      }
+
+      // New releases -> swipeable coverflow carousel
+      if (isNewReleaseSection({ key_type: section.key_type, variant })) {
+        return (
+          <NewReleaseCarousel
+            key={`${section.type}-${index}`}
+            title={section.title}
+            stories={section.data}
+            view_type={section.view_type}
+            key_type={section.key_type}
+            experience={experience}
           />
         );
       }
@@ -902,6 +1173,7 @@ function renderSection(section: Section, index: number): React.ReactNode {
           stories={section.data}
           view_type={section.view_type}
           key_type={section.key_type}
+          experience={experience}
         />
       );
     }
@@ -917,6 +1189,70 @@ function renderSection(section: Section, index: number): React.ReactNode {
   }
 }
 
+/* ---------- home experience switch (non-subscribers only) ---------- */
+
+const HomeExperienceSwitch: React.FC<{
+  value: HomeExperience;
+  onChange: (v: HomeExperience) => void;
+}> = ({ value, onChange }) => {
+  const { t } = useTranslation();
+
+  return (
+    <View style={styles.modeSwitch}>
+      <TouchableOpacity
+        style={[styles.modeTab, value === "buy" && styles.modeTabActive]}
+        activeOpacity={0.85}
+        onPress={() => onChange("buy")}
+        accessibilityRole="button"
+        accessibilityLabel={t("home.modeBuy")}
+      >
+        <Text style={[styles.modeTabText, value === "buy" && styles.modeTabTextActive]}>{t("home.modeBuy")}</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.modeTab, value === "unlimited" && styles.modeTabActive]}
+        activeOpacity={0.85}
+        onPress={() => onChange("unlimited")}
+        accessibilityRole="button"
+        accessibilityLabel={t("home.modeUnlimited")}
+      >
+        <Text style={[styles.modeTabText, value === "unlimited" && styles.modeTabTextActive]}>
+          {t("home.modeUnlimited")}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
+
+/* ---------- subscribe banner (unlimited experience, non-subscribers only) ---------- */
+
+const SubscribeBanner: React.FC = () => {
+  const { t } = useTranslation();
+
+  return (
+    <TouchableOpacity
+      style={styles.subscribeBanner}
+      activeOpacity={0.9}
+      onPress={goToSubscribe}
+      accessibilityRole="button"
+      accessibilityLabel={t("home.subscribeNow")}
+    >
+      <View style={styles.subscribeBannerIconWrap}>
+        <CrownIcon size={16} color={COLORS.lav} />
+      </View>
+
+      <View style={{ flex: 1 }}>
+        <Text style={styles.subscribeBannerTitle}>{t("home.unlimitedBannerTitle")}</Text>
+        <Text style={styles.subscribeBannerSubtitle}>{t("home.unlimitedBannerSubtitle")}</Text>
+      </View>
+
+      <View style={styles.subscribeBtn}>
+        <Text style={styles.subscribeBtnText}>{t("home.subscribeNow")}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+};
+
 /* ---------- main component ---------- */
 
 const DeepAudiobooksHome: React.FC = () => {
@@ -926,6 +1262,16 @@ const DeepAudiobooksHome: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // What the user picked on the switch (only matters for non-subscribers).
+  const [experience, setExperience] = useState<HomeExperience>("buy");
+
+  // true = active subscriber. false = new user OR expired plan.
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const isSubscribedRef = useRef(false);
+
+  // Subscribers always get the unlimited experience; the Buy option is gone.
+  const activeExperience: HomeExperience = isSubscribed ? "unlimited" : experience;
 
   const fetchDiscoverData = useCallback(
     async (isPullRefresh = false) => {
@@ -941,10 +1287,21 @@ const DeepAudiobooksHome: React.FC = () => {
 
         const { data } = await axios.post("/", {
           method: "getHomepageData",
+          // Hint for the backend (it should also decide from the auth token).
+          home_type: isSubscribedRef.current ? "unlimited" : experience,
         });
 
         if (data.statusCode === 200) {
-          setSections(data.data ?? []);
+          const list: Section[] = data.data ?? [];
+          setSections(list);
+
+          // Ellaa stories oda like status ah global store la seed panrom
+          seedWishlistFromSections(list as any[]);
+
+          // Backend sends is_subscribed = false for new users & expired plans.
+          const sub = !!(data.is_subscribed ?? data.subscription?.is_active ?? false);
+          isSubscribedRef.current = sub;
+          setIsSubscribed(sub);
         } else {
           setError(data.msg || t("home.failedToLoad"));
         }
@@ -959,7 +1316,7 @@ const DeepAudiobooksHome: React.FC = () => {
         setRefreshing(false);
       }
     },
-    [t]
+    [t, experience]
   );
 
   const onPullRefresh = useCallback(() => {
@@ -968,6 +1325,7 @@ const DeepAudiobooksHome: React.FC = () => {
 
   useEffect(() => {
     fetchDiscoverData();
+    // Re-fetch when the chosen experience (Buy / Unlimited) changes.
   }, [fetchDiscoverData]);
 
   const greetingSection = sections.find(
@@ -1056,18 +1414,13 @@ const DeepAudiobooksHome: React.FC = () => {
                 <BellIcon />
               </View>
 
-              <TouchableOpacity
-                style={styles.profileDot}
-                activeOpacity={0.7}
-                onPress={() => router.push("/profile")}
-                accessibilityRole="button"
-                accessibilityLabel={t("home.openProfile")}
-              >
-                <LinearGradient colors={["#e85c3f", "#d9a441"]} style={StyleSheet.absoluteFillObject} />
-                <Text style={styles.profileDotText}>{getInitialFromGreeting(greetingSection?.title)}</Text>
-              </TouchableOpacity>
+              <ProfileDot dotStyle={styles.profileDot} textStyle={styles.profileDotText} />
             </View>
           </View>
+
+          {/* ---------- Buy vs Unlimited switch: new users & expired plans only ---------- */}
+
+          {!isSubscribed && <HomeExperienceSwitch value={experience} onChange={setExperience} />}
 
           {/* ---------- hero ---------- */}
 
@@ -1075,6 +1428,8 @@ const DeepAudiobooksHome: React.FC = () => {
             {!!greetingSection?.title && <Text style={styles.greet}>{greetingSection.title}</Text>}
 
             {!!greetingSection?.subtitle && <Text style={styles.greetSub}>{greetingSection.subtitle}</Text>}
+
+            {activeExperience === "unlimited" && !isSubscribed && <SubscribeBanner />}
 
             {heroSection?.data && (
               <TouchableOpacity
@@ -1097,10 +1452,11 @@ const DeepAudiobooksHome: React.FC = () => {
                   </View>
 
                   <View style={localStyles.heartCornerHero}>
-                    <WishlistHeart storyId={heroSection.data.id} initialLiked={heroSection.data.like} size={22} />
+                    <WishlistHeart storyId={heroSection.data.id} initialLiked={storyWishlisted(heroSection.data)} size={22} />
                   </View>
 
-                  {!heroSection.data.purchased && !!getStoryPrice(heroSection.data) && (
+                  {/* Buy price + cart: only in Buy mode, never for subscribers */}
+                  {activeExperience === "buy" && !heroSection.data.purchased && !!getStoryPrice(heroSection.data) && (
                     <View style={styles.heroCoverPriceCart}>
                       <Text style={styles.heroCoverPriceText}>{formatPrice(getStoryPrice(heroSection.data))}</Text>
 
@@ -1124,8 +1480,15 @@ const DeepAudiobooksHome: React.FC = () => {
                       </TouchableOpacity>
                     </View>
                   )}
+
+                  {activeExperience === "unlimited" && (
+                    <View style={styles.heroCoverPriceCart}>
+                      <AccessBadge experience="unlimited" />
+                    </View>
+                  )}
                 </View>
 
+                {/* Details on the right: label + title (up to 2 lines) + genre + author. */}
                 <View style={styles.primaryInfo}>
                   <Text style={styles.primaryLabel}>
                     {heroSection.mode === "resume" ? t("home.continueListening") : t("home.explore")}
@@ -1135,22 +1498,9 @@ const DeepAudiobooksHome: React.FC = () => {
                     {heroSection.data.title}
                   </Text>
 
-                  <AuthorVoiceBlock
-                    author={heroSection.data.author}
-                    narrator={heroSection.data.narrator}
-                    authorStyle={styles.primaryNarrator}
-                    voiceStyle={[styles.primaryNarrator, { opacity: 0.75 }]}
-                  />
+                  <GenreText genre={heroSection.data.genre} genreStyle={styles.primaryGenreText} />
 
-                  <View style={styles.heroMetaRow}>
-                    <RatingBadge rating={heroSection.data.rating} size={12} />
-
-                    {!!heroSection.data.genre && (
-                      <View style={styles.heroGenrePill}>
-                        <Text style={styles.heroGenrePillText}>{heroSection.data.genre}</Text>
-                      </View>
-                    )}
-                  </View>
+                  <AuthorText author={heroSection.data.author} authorStyle={styles.primaryNarrator} />
 
                   <View style={styles.heroActionRow}>
                     <TouchableOpacity
@@ -1178,7 +1528,7 @@ const DeepAudiobooksHome: React.FC = () => {
 
           {/* ---------- body sections ---------- */}
 
-          {bodySections.map((section, i) => renderSection(section, i))}
+          {bodySections.map((section, i) => renderSection(section, i, activeExperience))}
 
           {/* ---------- footer ---------- */}
 
@@ -1202,16 +1552,6 @@ const localStyles = StyleSheet.create({
     top: 10,
     right: 10,
   },
-  heartBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   langBtn: {
     width: 32,
     height: 32,
@@ -1229,22 +1569,193 @@ const localStyles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
-  bedRatingBadge: {
+  cardAccessCorner: {
     position: "absolute",
-    left: 8,
+    right: 7,
+    bottom: 7,
+  },
+  bedAccessCorner: {
+    position: "absolute",
+    right: 8,
     bottom: 8,
+  },
+  cardMetaRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    flexShrink: 0,
+  },
+
+  /* ---------- new releases carousel ---------- */
+  nrPanel: {
+    marginHorizontal: 14,
+    marginTop: 14,
+    marginBottom: 6,
+    paddingTop: 14,
+    paddingBottom: 12,
+    borderRadius: 24,
+    overflow: "hidden",
+    backgroundColor: "rgba(20,16,35,0.85)",
+    borderWidth: 1,
+    borderColor: "rgba(183,155,209,0.28)",
+  },
+  nrHeader: {
+    alignItems: "center",
+    gap: 2,
+    paddingHorizontal: 70,
+  },
+  nrTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  nrTitle: {
+    color: COLORS.text1,
+    fontSize: 18,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  nrSubtitle: {
+    color: COLORS.text2,
+    fontSize: 11,
+    textAlign: "center",
+  },
+  nrViewAll: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    zIndex: 5,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  nrViewAllText: {
+    color: COLORS.lav,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  dotsRow: {
+    flexDirection: "row",
+    alignSelf: "center",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 8,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.25)",
+  },
+  dotActive: {
+    width: 18,
+    backgroundColor: COLORS.lav,
+  },
+  carouselCard: {
+    position: "absolute",
+    top: 0,
+    borderRadius: CARD_RADIUS,
+    overflow: "hidden",
+    backgroundColor: "#1a1420",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  newPillWrap: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    shadowColor: "#7b4ddb",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  newPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.45)",
+  },
+  newPillText: {
+    color: "#170808",
+    fontSize: 10.5,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+  },
+  newRibbon: {
+    position: "absolute",
+    left: -38,
+    bottom: 26,
+    width: 140,
+    paddingVertical: 4,
+    backgroundColor: "#7b4ddb",
+    alignItems: "center",
+    justifyContent: "center",
+    transform: [{ rotate: "-38deg" }],
+  },
+  newRibbonText: {
+    color: "#170808",
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 1,
+  },
+  carouselInfo: {
+    alignItems: "center",
+    paddingHorizontal: 20,
+    marginTop: 4,
+    gap: 4,
+  },
+  carouselTitle: {
+    color: COLORS.text1,
+    fontSize: 15,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  carouselMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  carouselAuthor: {
+    color: COLORS.text2,
+    fontSize: 12,
+    flexShrink: 1,
+  },
+
+  // Shared price/unlimited pill used by AccessBadge.
+  accessPill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    backgroundColor: "rgba(20,16,35,0.55)",
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 9,
     paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.08)",
   },
-  bedRatingBadgeText: {
-    color: "#fff",
+  accessPillUnlimited: {
+    backgroundColor: "rgba(20,16,35,0.72)",
+    borderColor: "rgba(183,155,209,0.4)",
+  },
+  accessPillText: {
     fontSize: 10.5,
-    fontWeight: "600",
+    fontWeight: "700",
+  },
+  accessPillTextPrice: {
+    color: "#241b2c",
+  },
+  accessPillTextUnlimited: {
+    color: COLORS.lav,
   },
   priceRow: {
     flexDirection: "row",
@@ -1279,14 +1790,6 @@ const localStyles = StyleSheet.create({
   },
   cartBtnDone: {
     backgroundColor: "#8fd19e",
-  },
-  priceCartCorner: {
-    position: "absolute",
-    left: 7,
-    bottom: 7,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
   },
   ownedPill: {
     alignSelf: "flex-end",

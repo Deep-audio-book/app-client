@@ -1,11 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { VideoView } from 'expo-video';
-import React, { useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
+  Animated,
+  Easing,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -27,7 +31,25 @@ const BASE_HEIGHT = 844;
 const MAX_CONTENT_WIDTH = 480;
 const MIN_TOUCH_TARGET = 44;
 const VIDEO_ASPECT_RATIO = 16 / 9;
-const SKIP_SECONDS = 10;
+
+// skip buttons (same as the design: back 15s, forward 30s)
+const SKIP_BACK_SECONDS = 15;
+const SKIP_FORWARD_SECONDS = 30;
+// the video overlay keeps its own 10s buttons
+const VIDEO_SKIP_SECONDS = 10;
+
+const ACCENT = '#FF9A3D';
+const ACCENT_SOFT = '#FFC078';
+const BG_BASE = '#07060A';
+
+// cover is shown as a portrait 3:4 card (width : height)
+const COVER_ASPECT = 3 / 4;
+
+const WAVE_BARS = 56;
+const WAVE_HEIGHT = 54;
+// bars use 80% of the row, the rest is headroom for the live bounce
+const BAR_FILL = 0.8;
+const SPEEDS = [1, 1.15, 1.25, 1.5, 2, 0.75];
 
 /* ========================================================================= */
 
@@ -47,19 +69,168 @@ function formatTime(seconds: number) {
     return '0:00';
   }
 
-  const mins = Math.floor(seconds / 60);
-
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
   const secs = Math.floor(seconds % 60)
     .toString()
     .padStart(2, '0');
 
+  if (hrs > 0) {
+    return `${hrs}:${mins.toString().padStart(2, '0')}:${secs}`;
+  }
+
   return `${mins}:${secs}`;
+}
+
+/* ========================================================================= */
+/*
+ * Placeholder waveform (used until real loudness is known). The bar heights
+ * are generated from the chapter id: every chapter gets its own shape, and it
+ * never changes between renders. Real data replaces it as the audio plays.
+ */
+
+function makeWaveform(seed: string, count: number): number[] {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+
+  const rand = () => {
+    h += 0x6d2b79f5;
+    let t = h;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  const raw = Array.from({ length: count }, () => rand());
+
+  // smooth a little so it looks like speech, not noise
+  return raw.map((v, i) => {
+    const prev = raw[i - 1] ?? v;
+    const next = raw[i + 1] ?? v;
+    const smooth = (prev + v * 2 + next) / 4;
+    return 0.22 + smooth * 0.78;
+  });
+}
+
+/*
+ * REAL waveform support: if the backend sends peaks for the chapter
+ * (array of numbers, or a JSON / comma separated string), we use them.
+ */
+function parsePeaks(input: unknown): number[] | null {
+  let arr: unknown = input;
+
+  if (typeof arr === 'string') {
+    try {
+      arr = JSON.parse(arr);
+    } catch {
+      arr = (arr as string)
+        .split(',')
+        .map((v) => Number(v.trim()))
+        .filter((v) => isFinite(v));
+    }
+  }
+
+  if (!Array.isArray(arr)) return null;
+
+  const nums = arr.map((v) => Math.abs(Number(v))).filter((v) => isFinite(v));
+  return nums.length >= 8 ? nums : null;
+}
+
+// any number of peaks -> `count` bars (max of each bucket, normalised 0..1)
+function resamplePeaks(peaks: number[], count: number): number[] {
+  const max = Math.max(...peaks, 0.0001);
+  const bucket = peaks.length / count;
+
+  return Array.from({ length: count }, (_, i) => {
+    const start = Math.floor(i * bucket);
+    const end = Math.max(start + 1, Math.floor((i + 1) * bucket));
+
+    let peak = 0;
+    for (let j = start; j < end && j < peaks.length; j++) {
+      if (peaks[j] > peak) peak = peaks[j];
+    }
+
+    return 0.16 + (peak / max) * 0.84;
+  });
+}
+
+// tiny deterministic random in 0..1 (for per-bar motion)
+function noise(i: number, k: number) {
+  const x = Math.sin((i + 1) * 12.9898 + k * 78.233) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+/* ========================================================================= */
+/*
+ * Background: the blurred artwork of the current chapter. If the chapter has
+ * no cover of its own, the story cover is used (chosen by the caller).
+ */
+
+function PlayerBackground({
+  uri,
+  dark,
+  onError,
+}: {
+  uri?: string | null;
+  dark: boolean;
+  onError?: () => void;
+}) {
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: BG_BASE }]} />
+
+      {uri ? (
+        <Image
+          key={uri}
+          source={{ uri }}
+          style={styles.bgImage}
+          contentFit="cover"
+          blurRadius={Platform.OS === 'android' ? 26 : 45}
+          transition={500}
+          cachePolicy="memory-disk"
+          onError={onError}
+        />
+      ) : (
+        <LinearGradient
+          colors={['#D7B385', '#AE7E55', '#000000']}
+          locations={[0, 0.55, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+      )}
+
+      {/* one long smooth fade: colour at the top, nearly black at the bottom */}
+      <LinearGradient
+        colors={
+          dark
+            ? [
+                'rgba(7,6,10,0.55)',
+                'rgba(7,6,10,0.78)',
+                'rgba(7,6,10,0.92)',
+                'rgba(7,6,10,0.98)',
+              ]
+            : [
+                'rgba(7,6,10,0.10)',
+                'rgba(7,6,10,0.35)',
+                'rgba(7,6,10,0.78)',
+                'rgba(7,6,10,0.97)',
+              ]
+        }
+        locations={[0, 0.4, 0.75, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+    </View>
+  );
 }
 
 /* ========================================================================= */
 
 export default function PlayerStandardScreen() {
   const router = useRouter();
+
+  const { t } = useTranslation();
 
   const dispatch = useDispatch();
 
@@ -97,12 +268,12 @@ export default function PlayerStandardScreen() {
      PLAYER PROVIDER
   ======================================================================= */
 
+  const player = usePlayer();
+
   const {
     chapters,
     videoPlayer,
     currentChapter,
-    chapterHasVideo,
-    chapterHasAudio,
     bothAvailable,
     isSeeking,
     dragProgress,
@@ -119,28 +290,39 @@ export default function PlayerStandardScreen() {
     updateSeekDrag,
     endSeek,
     collapsePlayer,
-  } = usePlayer();
+  } = player;
+
+  // Optional features. The buttons only show up if your PlayerProvider
+  // exposes these functions (add them there when you want the feature).
+  const extras = player as any;
+  const setPlaybackRate: ((rate: number) => void) | undefined =
+    extras.setPlaybackRate;
+  const toggleSleepTimer: (() => void) | undefined =
+    extras.toggleSleepTimer ?? extras.setSleepTimer;
+
+  // Real audio loudness (from useLiveWaveform inside PlayerProvider).
+  // All optional: if the provider doesn't expose them, we fall back to the
+  // generated animation.
+  const audioLevel: Animated.Value | undefined = extras.audioLevel;
+  const liveLevelAvailable: boolean = !!extras.liveLevelAvailable;
+  const getWaveLevels:
+    | ((chapterId: string) => number[] | undefined)
+    | undefined = extras.getWaveLevels;
+  const subscribeWaveLevels:
+    | ((listener: () => void) => () => void)
+    | undefined = extras.subscribeWaveLevels;
+
+  const [rate, setRate] = useState(1);
+
+  const cycleSpeed = () => {
+    const next = SPEEDS[(SPEEDS.indexOf(rate) + 1) % SPEEDS.length];
+    setRate(next);
+    setPlaybackRate?.(next);
+  };
 
   /* =======================================================================
      EPISODE COUNT
   ======================================================================= */
-
-  /*
-   * REAL EPISODE COUNT
-   *
-   * chapters comes directly from PlayerProvider.
-   *
-   * Example:
-   *
-   * chapters = [
-   *   Episode 1,
-   *   Episode 2,
-   *   Episode 3,
-   *   Episode 4
-   * ]
-   *
-   * chapters.length = 4
-   */
 
   const totalEpisodes = chapters.length;
 
@@ -164,14 +346,149 @@ export default function PlayerStandardScreen() {
   });
 
   /* =======================================================================
-     COVER
+     ARTWORK  (chapter cover  ->  else story cover)
   ======================================================================= */
 
-  const coverSource = currentChapter?.cover
-    ? {
-        uri: currentChapter.cover,
+  const chapterAny = currentChapter as any;
+
+  // Chapter cover first. No chapter cover (empty / missing) -> story cover.
+  // If the chapter cover URL fails to load (404, bad link) we also fall back
+  // to the story cover. This ONE uri drives the cover AND the background.
+  const chapterCover: string | null = chapterAny?.cover || null;
+  const storyCover: string | null = chapterAny?.storyCover || null;
+
+  const [failedUri, setFailedUri] = useState<string | null>(null);
+
+  const artUri: string | null =
+    chapterCover && chapterCover !== failedUri ? chapterCover : storyCover;
+
+  const handleArtError = () => {
+    if (artUri && artUri === chapterCover) {
+      setFailedUri(artUri);
+    }
+  };
+
+  const coverSource = artUri ? { uri: artUri } : null;
+
+  /* =======================================================================
+     WAVEFORM (per chapter, stable)
+  ======================================================================= */
+
+  // Shape priority:
+  //  1) real peaks from the backend (chapter.waveform / peaks)
+  //  2) REAL loudness measured from the audio while it plays (live)
+  //  3) a stable generated shape for that chapter (placeholder)
+  const rawPeaks =
+    chapterAny?.waveform ?? chapterAny?.peaks ?? chapterAny?.waveform_data;
+
+  const backendPeaks = useMemo(() => parsePeaks(rawPeaks), [rawPeaks]);
+
+  const baseWave = useMemo(
+    () =>
+      backendPeaks
+        ? resamplePeaks(backendPeaks, WAVE_BARS)
+        : makeWaveform(String(currentChapter?.id ?? 'x'), WAVE_BARS),
+    [currentChapter?.id, backendPeaks]
+  );
+
+  // re-render when new real loudness has been measured (~2-3 times / second)
+  const [, setWaveTick] = useState(0);
+
+  useEffect(() => {
+    if (!subscribeWaveLevels) return;
+
+    return subscribeWaveLevels(() => setWaveTick((t) => t + 1));
+  }, [subscribeWaveLevels]);
+
+  const isVideoNow = mode === 'video' || mode === 'checking';
+
+  // live mode = real audio samples are arriving (audio mode only)
+  const liveMode = liveLevelAvailable && !!audioLevel && !isVideoNow;
+
+  // bars that were already played show their REAL loudness
+  let displayWave = baseWave;
+
+  if (!backendPeaks && currentChapter && getWaveLevels) {
+    const recorded = getWaveLevels(String(currentChapter.id));
+
+    if (recorded) {
+      const known = recorded.filter((v) => v >= 0);
+
+      if (known.length) {
+        const max = Math.max(...known, 0.03);
+
+        displayWave = baseWave.map((base, i) =>
+          recorded[i] >= 0
+            ? 0.18 + 0.82 * Math.min(1, recorded[i] / max)
+            : base
+        );
       }
-    : null;
+    }
+  }
+
+  /* =======================================================================
+     WAVEFORM MOTION
+     - live mode: bars around the playhead jump with the real audio level
+     - otherwise (video, or sampling not available): generated animation,
+       only while audio is playing
+  ======================================================================= */
+
+  const phase = useRef(new Animated.Value(0)).current;
+
+  const shouldAnimate = isPlaying && !isSeeking && !liveMode;
+
+  useEffect(() => {
+    if (!shouldAnimate) {
+      phase.stopAnimation();
+      phase.setValue(0);
+      return;
+    }
+
+    const loop = Animated.loop(
+      Animated.timing(phase, {
+        toValue: 1,
+        duration: 1100,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    );
+
+    loop.start();
+
+    return () => {
+      loop.stop();
+    };
+  }, [shouldAnimate, phase]);
+
+  // generated per-bar motion (scaleY wobble, anchored to the bar bottom)
+  const barMotion = useMemo(
+    () =>
+      baseWave.map((h, i) => {
+        const barH = WAVE_HEIGHT * BAR_FILL * h;
+
+        const scales = [
+          1,
+          1 + 0.05 + noise(i, 1) * 0.3,
+          1 - (0.05 + noise(i, 2) * 0.3),
+          1 + 0.05 + noise(i, 3) * 0.3,
+          1,
+        ];
+
+        const input = [0, 0.25, 0.5, 0.75, 1];
+
+        return {
+          scaleY: phase.interpolate({
+            inputRange: input,
+            outputRange: scales,
+          }),
+          translateY: phase.interpolate({
+            inputRange: input,
+            outputRange: scales.map((sc) => (-barH * (sc - 1)) / 2),
+          }),
+        };
+      }),
+    [baseWave, phase]
+  );
 
   /* =======================================================================
      LOADING
@@ -200,7 +517,7 @@ export default function PlayerStandardScreen() {
             marginTop: 12,
           }}
         >
-          Loading chapter...
+          {t('player.loadingChapter')}
         </Text>
       </View>
     );
@@ -235,7 +552,7 @@ export default function PlayerStandardScreen() {
   );
 
   const horizontalPadding = Math.max(
-    Math.round(30 * scale),
+    Math.round(26 * scale),
     sideInset,
     16
   );
@@ -285,10 +602,7 @@ export default function PlayerStandardScreen() {
     const {
       pageX,
       width: trackWidth,
-    } = {
-      pageX: trackLayout.current.pageX,
-      width: trackLayout.current.width,
-    };
+    } = trackLayout.current;
 
     if (trackWidth <= 0) {
       return 0;
@@ -447,18 +761,33 @@ export default function PlayerStandardScreen() {
 
   const topBarStatusLabel =
     isVideoMode
-      ? 'PLAYING VIDEO'
+      ? t('player.statusPlayingVideo')
       : isCheckingVideo
-      ? 'LOADING VIDEO'
-      : 'PLAYING';
+      ? t('player.statusLoadingVideo')
+      : t('player.statusPlaying');
 
   /* =======================================================================
      COVER SIZE
   ======================================================================= */
 
-  const coverSize = Math.min(
-    contentWidth * 0.72,
-    320
+  // 3:4 portrait card. Width is limited by the screen width AND by the
+  // height we can spare, so it never pushes the controls off small phones.
+  const coverWidth = Math.min(
+    contentWidth * 0.78,
+    availableHeight * 0.4 * COVER_ASPECT,
+    300
+  );
+
+  const coverHeight = coverWidth / COVER_ASPECT;
+
+  const chapterLabel = t('player.chapterLabel', {
+    number: currentChapter.number ?? chapterIndex + 1,
+    title: currentChapter.title ?? '',
+  });
+
+  const playSize = Math.max(
+    72 * scale,
+    MIN_TOUCH_TARGET + 12
   );
 
   /* =======================================================================
@@ -468,31 +797,13 @@ export default function PlayerStandardScreen() {
   return (
     <View style={styles.container}>
       {/* ================================================================
-          BACKGROUND
+          BACKGROUND  (depends on chapter cover, else story cover)
       ================================================================ */}
 
-      <LinearGradient
-        colors={
-          isVideoLayout
-            ? [
-                '#141414',
-                '#0A0A0A',
-                '#000000',
-              ]
-            : [
-                '#D7B385',
-                '#AE7E55',
-                '#000000',
-              ]
-        }
-        locations={
-          isVideoLayout
-            ? [0, 0.5, 1]
-            : [0, 0.55, 1]
-        }
-        style={
-          StyleSheet.absoluteFillObject
-        }
+      <PlayerBackground
+        uri={artUri}
+        dark={isVideoLayout}
+        onError={handleArtError}
       />
 
       <View
@@ -522,10 +833,6 @@ export default function PlayerStandardScreen() {
             },
           ]}
         >
-          {/* ============================================================
-              CLOSE / DOWN BUTTON
-          ============================================================ */}
-
           <Pressable
             onPress={handleClose}
             hitSlop={12}
@@ -539,17 +846,15 @@ export default function PlayerStandardScreen() {
                   horizontalPadding,
               },
             ]}
+            accessibilityRole="button"
+            accessibilityLabel={t('player.close')}
           >
             <Ionicons
               name="chevron-down"
-              size={22 * scale}
+              size={24 * scale}
               color="#FFFFFF"
             />
           </Pressable>
-
-          {/* ============================================================
-              AUDIO / VIDEO TOGGLE
-          ============================================================ */}
 
           {bothAvailable ? (
             <View
@@ -612,10 +917,6 @@ export default function PlayerStandardScreen() {
             </View>
           ) : null}
 
-          {/* ============================================================
-              EPISODE COUNT
-          ============================================================ */}
-
           <Text
             style={[
               styles.playNowLabel,
@@ -627,9 +928,11 @@ export default function PlayerStandardScreen() {
             numberOfLines={1}
             adjustsFontSizeToFit
           >
-            {topBarStatusLabel} ·{' '}
-            {chapterIndex + 1}/
-            {totalEpisodes}
+            {t('player.topLabel', {
+              status: topBarStatusLabel,
+              current: chapterIndex + 1,
+              total: totalEpisodes,
+            })}
           </Text>
         </View>
 
@@ -638,168 +941,71 @@ export default function PlayerStandardScreen() {
         ============================================================== */}
 
         {isVideoLayout ? (
-          <View
-            style={
-              styles.videoCenterWrap
-            }
-          >
-            {/* ==========================================================
-                VIDEO FRAME
-            ========================================================== */}
-
-            <View
-              style={
-                styles.videoFrameFull
-              }
-            >
+          <View style={styles.videoCenterWrap}>
+            <View style={styles.videoFrameFull}>
               {isVideoMode ? (
-                <View
-                  style={
-                    StyleSheet.absoluteFillObject
-                  }
-                >
-                  {/* ====================================================
-                      VIDEO SURFACE
-                  ==================================================== */}
-
-                  <GestureDetector
-                    gesture={
-                      videoSurfaceTapGesture
-                    }
-                  >
-                    <View
-                      style={
-                        StyleSheet.absoluteFillObject
-                      }
-                    >
+                <View style={StyleSheet.absoluteFillObject}>
+                  <GestureDetector gesture={videoSurfaceTapGesture}>
+                    <View style={StyleSheet.absoluteFillObject}>
                       <VideoView
-                        style={
-                          StyleSheet.absoluteFillObject
-                        }
-                        player={
-                          videoPlayer
-                        }
-                        nativeControls={
-                          false
-                        }
+                        style={StyleSheet.absoluteFillObject}
+                        player={videoPlayer}
+                        nativeControls={false}
                         contentFit="cover"
                       />
                     </View>
                   </GestureDetector>
 
-                  {/* ====================================================
-                      VIDEO CONTROLS
-                  ==================================================== */}
-
                   {showVideoControls ? (
                     <>
                       <LinearGradient
-                        colors={[
-                          'rgba(0,0,0,0.55)',
-                          'rgba(0,0,0,0)',
-                        ]}
-                        style={
-                          styles.videoScrimTop
-                        }
+                        colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0)']}
+                        style={styles.videoScrimTop}
                         pointerEvents="none"
                       />
 
                       <LinearGradient
-                        colors={[
-                          'rgba(0,0,0,0)',
-                          'rgba(0,0,0,0.65)',
-                        ]}
-                        style={
-                          styles.videoScrimBottom
-                        }
+                        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.65)']}
+                        style={styles.videoScrimBottom}
                         pointerEvents="none"
                       />
 
                       <View
-                        style={
-                          styles.videoCenterControls
-                        }
+                        style={styles.videoCenterControls}
                         pointerEvents="box-none"
                       >
-                        {/* Previous 10 sec */}
                         <Pressable
-                          onPress={() =>
-                            skip(
-                              -SKIP_SECONDS
-                            )
-                          }
+                          onPress={() => skip(-VIDEO_SKIP_SECONDS)}
                           hitSlop={10}
-                          style={
-                            styles.videoSkipButton
-                          }
+                          style={styles.videoSkipButton}
                         >
-                          <Ionicons
-                            name="play-back"
-                            size={22}
-                            color="#FFFFFF"
-                          />
-
-                          <Text
-                            style={
-                              styles.videoSkipLabel
-                            }
-                          >
-                            {SKIP_SECONDS}
+                          <Ionicons name="play-back" size={22} color="#FFFFFF" />
+                          <Text style={styles.videoSkipLabel}>
+                            {VIDEO_SKIP_SECONDS}
                           </Text>
                         </Pressable>
 
-                        {/* Play / Pause */}
                         <Pressable
-                          onPress={
-                            handlePlayPause
-                          }
+                          onPress={handlePlayPause}
                           hitSlop={10}
-                          style={
-                            styles.videoPlayButton
-                          }
+                          style={styles.videoPlayButton}
                         >
                           <Ionicons
-                            name={
-                              isPlaying
-                                ? 'pause'
-                                : 'play'
-                            }
+                            name={isPlaying ? 'pause' : 'play'}
                             size={30}
                             color="#FFFFFF"
-                            style={
-                              !isPlaying
-                                ? {
-                                    marginLeft: 3,
-                                  }
-                                : undefined
-                            }
+                            style={!isPlaying ? { marginLeft: 3 } : undefined}
                           />
                         </Pressable>
 
-                        {/* Next 10 sec */}
                         <Pressable
-                          onPress={() =>
-                            skip(
-                              SKIP_SECONDS
-                            )
-                          }
+                          onPress={() => skip(VIDEO_SKIP_SECONDS)}
                           hitSlop={10}
-                          style={
-                            styles.videoSkipButton
-                          }
+                          style={styles.videoSkipButton}
                         >
-                          <Ionicons
-                            name="play-forward"
-                            size={22}
-                            color="#FFFFFF"
-                          />
-
-                          <Text
-                            style={
-                              styles.videoSkipLabel
-                            }
-                          >
-                            {SKIP_SECONDS}
+                          <Ionicons name="play-forward" size={22} color="#FFFFFF" />
+                          <Text style={styles.videoSkipLabel}>
+                            {VIDEO_SKIP_SECONDS}
                           </Text>
                         </Pressable>
                       </View>
@@ -807,118 +1013,63 @@ export default function PlayerStandardScreen() {
                   ) : null}
                 </View>
               ) : (
-                /* ========================================================
-                   VIDEO LOADING
-                ======================================================== */
-
-                <View
-                  style={
-                    styles.videoLoadingWrap
-                  }
-                >
+                <View style={styles.videoLoadingWrap}>
                   {coverSource ? (
                     <Image
-                      source={
-                        coverSource
-                      }
-                      style={
-                        StyleSheet.absoluteFillObject
-                      }
-                      resizeMode="cover"
+                      source={coverSource}
+                      style={StyleSheet.absoluteFillObject}
+                      contentFit="cover"
                       blurRadius={2}
+                      cachePolicy="memory-disk"
                     />
                   ) : null}
 
-                  <View
-                    style={
-                      styles.videoLoadingScrim
-                    }
-                  />
+                  <View style={styles.videoLoadingScrim} />
 
-                  <ActivityIndicator
-                    size="small"
-                    color="#FFFFFF"
-                  />
+                  <ActivityIndicator size="small" color="#FFFFFF" />
 
-                  <Text
-                    style={
-                      styles.videoLoadingText
-                    }
-                  >
-                    Loading video…
+                  <Text style={styles.videoLoadingText}>
+                    {t('player.loadingVideo')}
                   </Text>
                 </View>
               )}
             </View>
 
-            {/* ==========================================================
-                VIDEO TITLE
-            ========================================================== */}
-
             <View
               style={[
                 styles.body,
                 styles.bodyVideoMode,
-                {
-                  paddingHorizontal:
-                    horizontalPadding,
-                },
+                { paddingHorizontal: horizontalPadding },
               ]}
             >
-              <View
-                style={
-                  styles.titleBlockVideoMode
-                }
-              >
+              <View style={styles.titleBlockVideoMode}>
                 <Text
-                  style={[
-                    styles.storyLabel,
-                    styles.storyLabelVideoMode,
-                  ]}
+                  style={[styles.storyLabel, styles.storyLabelVideoMode]}
                   numberOfLines={1}
                 >
-                  {currentChapter.story ??
-                    ''}
+                  {currentChapter.story ?? ''}
                 </Text>
 
-                <View
-                  style={
-                    styles.titleRowVideoMode
-                  }
+                <Text
+                  style={[
+                    styles.trackTitle,
+                    styles.trackTitleVideoMode,
+                    { fontSize: isCompactHeight ? 20 : 24 * scale },
+                  ]}
+                  numberOfLines={2}
                 >
-                  <Text
-                    style={[
-                      styles.trackTitle,
-                      styles.trackTitleVideoMode,
-                      {
-                        fontSize:
-                          isCompactHeight
-                            ? 20
-                            : 24 * scale,
-                      },
-                    ]}
-                    numberOfLines={2}
-                  >
-                    {
-                      currentChapter.title
-                    }
-                  </Text>
-                </View>
+                  {currentChapter.title}
+                </Text>
 
                 <Text
                   style={[
                     styles.trackArtist,
                     styles.trackArtistVideoMode,
-                    {
-                      fontSize:
-                        13.5 * scale,
-                    },
+                    { fontSize: 13.5 * scale },
                   ]}
                   numberOfLines={1}
                 >
-                  {
-                    currentChapter.artist
-                  }
+                  {currentChapter.artist}
                 </Text>
               </View>
             </View>
@@ -932,170 +1083,85 @@ export default function PlayerStandardScreen() {
             style={[
               styles.body,
               styles.bodyAudioMode,
-              {
-                paddingHorizontal:
-                  horizontalPadding,
-              },
+              { paddingHorizontal: horizontalPadding },
             ]}
           >
-            {/* ==========================================================
-                COVER
-            ========================================================== */}
-
+            {/* COVER */}
             <View
               style={[
                 styles.coverArt,
                 {
-                  width: coverSize,
-                  height: coverSize,
-                  borderRadius:
-                    12 * scale,
-                  marginBottom:
-                    28 * scale,
+                  width: coverWidth,
+                  height: coverHeight,
+                  borderRadius: 22 * scale,
+                  marginBottom: 26 * scale,
                 },
               ]}
             >
               {coverSource ? (
                 <Image
-                  source={
-                    coverSource
-                  }
-                  style={
-                    StyleSheet.absoluteFillObject
-                  }
-                  resizeMode="cover"
+                  key={artUri ?? 'cover'}
+                  source={coverSource}
+                  style={[
+                    StyleSheet.absoluteFillObject,
+                    { borderRadius: 22 * scale },
+                  ]}
+                  contentFit="cover"
+                  transition={300}
+                  cachePolicy="memory-disk"
+                  priority="high"
+                  onError={handleArtError}
                 />
               ) : (
                 <Ionicons
                   name="book"
-                  size={
-                    coverSize * 0.32
-                  }
+                  size={coverWidth * 0.32}
                   color="rgba(255,255,255,0.85)"
                 />
               )}
 
-              {/* ========================================================
-                  WATCH VIDEO
-              ======================================================== */}
-
-              {bothAvailable &&
-              !videoEnabled ? (
+              {bothAvailable && !videoEnabled ? (
                 <Pressable
-                  onPress={
-                    handleToggleVideoMode
-                  }
+                  onPress={handleToggleVideoMode}
                   hitSlop={6}
-                  style={
-                    styles.watchVideoPill
-                  }
+                  style={styles.watchVideoPill}
                 >
-                  <Ionicons
-                    name="play"
-                    size={12}
-                    color="#000000"
-                  />
+                  <Ionicons name="play" size={12} color="#000000" />
 
-                  <Text
-                    style={
-                      styles.watchVideoPillText
-                    }
-                  >
-                    Watch video
+                  <Text style={styles.watchVideoPillText}>
+                    {t('player.watchVideo')}
                   </Text>
                 </Pressable>
               ) : null}
             </View>
 
-            {/* ==========================================================
-                AUDIO TITLE
-            ========================================================== */}
-
-            <View
-              style={
-                styles.titleBlockAudioMode
-              }
-            >
-              <Text
-                style={
-                  styles.storyLabel
-                }
-                numberOfLines={1}
-              >
-                {currentChapter.story ??
-                  ''}
-              </Text>
-
-              <View
-                style={
-                  styles.titleRowAudioMode
-                }
-              >
-                <Text
-                  style={[
-                    styles.trackTitle,
-                    {
-                      fontSize:
-                        isCompactHeight
-                          ? 20
-                          : 24 * scale,
-                    },
-                  ]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                >
-                  {
-                    currentChapter.title
-                  }
-                </Text>
-
-                <Pressable
-                  style={[
-                    styles.favoriteButton,
-                    {
-                      width: Math.max(
-                        36 * scale,
-                        MIN_TOUCH_TARGET -
-                          6
-                      ),
-                      height: Math.max(
-                        36 * scale,
-                        MIN_TOUCH_TARGET -
-                          6
-                      ),
-                      borderRadius:
-                        Math.max(
-                          36 * scale,
-                          MIN_TOUCH_TARGET -
-                            6
-                        ) / 2,
-                    },
-                  ]}
-                  hitSlop={8}
-                >
-                  <Ionicons
-                    name="bookmark-outline"
-                    size={
-                      17 * scale
-                    }
-                    color="#FFFFFF"
-                  />
-                </Pressable>
-              </View>
-
+            {/* TITLE BLOCK */}
+            <View style={styles.titleBlockAudioMode}>
               <Text
                 style={[
-                  styles.trackArtist,
-                  {
-                    fontSize:
-                      13.5 * scale,
-                  },
+                  styles.storyTitle,
+                  { fontSize: (isCompactHeight ? 22 : 28) * scale },
                 ]}
                 numberOfLines={1}
+                adjustsFontSizeToFit
               >
-                {
-                  currentChapter.artist
-                }
+                {currentChapter.story ?? currentChapter.title}
+              </Text>
+
+              {!!currentChapter.artist && (
+                <Text
+                  style={[styles.narrator, { fontSize: 13.5 * scale }]}
+                  numberOfLines={1}
+                >
+                  {currentChapter.artist}
+                </Text>
+              )}
+
+              <Text
+                style={[styles.chapterLabel, { fontSize: 13 * scale }]}
+                numberOfLines={1}
+              >
+                {chapterLabel}
               </Text>
             </View>
           </View>
@@ -1109,303 +1175,281 @@ export default function PlayerStandardScreen() {
           style={[
             styles.footer,
             {
-              paddingHorizontal:
-                horizontalPadding,
+              paddingHorizontal: horizontalPadding,
               paddingBottom:
-                insets.bottom +
-                (isCompactHeight
-                  ? 10
-                  : 16),
+                insets.bottom + (isCompactHeight ? 8 : 14),
             },
           ]}
         >
-          <View
-            style={
-              styles.footerCard
-            }
-          >
-            {/* ========================================================
-                PROGRESS BAR
-            ======================================================== */}
+          {/* ---------- WAVEFORM + PROGRESS (seekable) ---------- */}
 
-            <GestureDetector
-              gesture={
-                seekBarGesture
-              }
+          <GestureDetector gesture={seekBarGesture}>
+            <View
+              ref={trackRef}
+              style={styles.progressRow}
+              onLayout={measureTrack}
+              collapsable={false}
             >
-              <View
-                ref={trackRef}
-                style={
-                  styles.progressRow
-                }
-                onLayout={
-                  measureTrack
-                }
-                collapsable={false}
-              >
-                <View
-                  style={
-                    styles.progressTrack
-                  }
-                >
-                  <View
-                    style={[
-                      styles.progressFill,
-                      {
-                        width: `${
-                          progress * 100
-                        }%`,
-                      },
-                    ]}
-                  />
+              <View style={styles.waveRow} pointerEvents="none">
+                {displayWave.map((h, i) => {
+                  const played = (i + 0.5) / displayWave.length <= progress;
+                  const barH = WAVE_HEIGHT * BAR_FILL * h;
 
-                  <View
-                    style={[
-                      styles.progressThumb,
-                      {
-                        left: `${
-                          progress * 100
-                        }%`,
-                      },
-                      isSeeking &&
-                        styles.progressThumbActive,
-                    ]}
-                  />
-                </View>
+                  // bars next to the playhead react to the real audio level
+                  const playIndex = Math.min(
+                    displayWave.length - 1,
+                    Math.floor(progress * displayWave.length)
+                  );
+                  const distance = Math.abs(i - playIndex);
+                  const reactive =
+                    liveMode &&
+                    isPlaying &&
+                    !isSeeking &&
+                    !!audioLevel &&
+                    distance <= 3;
+                  const weight = reactive ? 1 - distance / 4 : 0;
+
+                  const transform: any = reactive
+                    ? [
+                        {
+                          translateY: audioLevel!.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0, -(barH * 0.55 * weight) / 2],
+                          }),
+                        },
+                        {
+                          scaleY: audioLevel!.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [1, 1 + 0.55 * weight],
+                          }),
+                        },
+                      ]
+                    : [
+                        { translateY: barMotion[i].translateY },
+                        { scaleY: barMotion[i].scaleY },
+                      ];
+
+                  return (
+                    <Animated.View
+                      key={i}
+                      style={[
+                        styles.waveBar,
+                        {
+                          height: barH,
+                          backgroundColor: played
+                            ? ACCENT_SOFT
+                            : 'rgba(255,190,120,0.30)',
+                          transform,
+                        },
+                      ]}
+                    />
+                  );
+                })}
               </View>
-            </GestureDetector>
 
-            {/* ========================================================
-                TIME
-            ======================================================== */}
+              <View style={styles.progressTrack} pointerEvents="none">
+                <View
+                  style={[
+                    styles.progressFill,
+                    { width: `${progress * 100}%` },
+                  ]}
+                />
 
-            <View
-              style={
-                styles.timeRow
-              }
-            >
-              <Text
-                style={
-                  styles.timeText
-                }
-              >
-                {formatTime(
-                  displayElapsed
-                )}
-              </Text>
-
-              <Text
-                style={
-                  styles.timeText
-                }
-              >
-                {formatTime(
-                  duration
-                )}
-              </Text>
+                <View
+                  style={[
+                    styles.progressThumb,
+                    { left: `${progress * 100}%` },
+                    isSeeking && styles.progressThumbActive,
+                  ]}
+                />
+              </View>
             </View>
+          </GestureDetector>
 
-            {/* ========================================================
-                PLAYER CONTROLS
-            ======================================================== */}
+          {/* ---------- TIME ---------- */}
 
-            <View
+          <View style={styles.timeRow}>
+            <Text style={styles.timeText}>{formatTime(displayElapsed)}</Text>
+            <Text style={styles.timeText}>{formatTime(duration)}</Text>
+          </View>
+
+          {/* ---------- CONTROLS ---------- */}
+
+          <View
+            style={[
+              styles.controlsRow,
+              { marginTop: (isCompactHeight ? 10 : 18) * scale },
+            ]}
+          >
+            {/* previous episode (hidden on first) */}
+            {isFirstEpisode ? (
+              <View style={styles.sideIcon} />
+            ) : (
+              <Pressable
+                style={styles.sideIcon}
+                hitSlop={10}
+                onPress={handlePreviousChapter}
+                accessibilityRole="button"
+                accessibilityLabel={t('player.previous')}
+              >
+                <Ionicons
+                  name="play-skip-back"
+                  size={24 * scale}
+                  color={ACCENT_SOFT}
+                />
+              </Pressable>
+            )}
+
+            {/* back 15 */}
+            <Pressable
+              style={styles.skipCircle}
+              hitSlop={8}
+              onPress={() => skip(-SKIP_BACK_SECONDS)}
+              accessibilityRole="button"
+              accessibilityLabel={t('player.skipBack', { seconds: SKIP_BACK_SECONDS })}
+            >
+              <Ionicons
+                name="reload-outline"
+                size={44 * scale}
+                color="rgba(255,255,255,0.85)"
+                style={{ transform: [{ scaleX: -1 }] }}
+              />
+              <Text style={styles.skipCircleText}>{SKIP_BACK_SECONDS}</Text>
+            </Pressable>
+
+            {/* play / pause */}
+            <Pressable
+              onPress={handlePlayPause}
+              accessibilityRole="button"
+              accessibilityLabel={isPlaying ? t('player.pause') : t('player.play')}
               style={[
-                styles.controlsRow,
+                styles.playButtonShadow,
                 {
-                  marginTop:
-                    (isCompactHeight
-                      ? 14
-                      : 20) * scale,
+                  width: playSize,
+                  height: playSize,
+                  borderRadius: playSize / 2,
                 },
               ]}
             >
-              {/* ======================================================
-                  SHUFFLE
-              ====================================================== */}
-
-              <Pressable
-                hitSlop={10}
-                style={
-                  styles.sideIcon
-                }
-              >
-                <Ionicons
-                  name="shuffle"
-                  size={
-                    19 * scale
-                  }
-                  color="rgba(255,255,255,0.55)"
-                />
-              </Pressable>
-
-              {/* ======================================================
-                  PREVIOUS
-                  
-                  HIDDEN ON FIRST EPISODE
-              ====================================================== */}
-
-              {isFirstEpisode ? (
-                <View
-                  style={
-                    styles.sideIcon
-                  }
-                />
-              ) : (
-                <Pressable
-                  style={
-                    styles.sideIcon
-                  }
-                  hitSlop={10}
-                  onPress={
-                    handlePreviousChapter
-                  }
-                >
-                  <Ionicons
-                    name="play-skip-back"
-                    size={
-                      22 * scale
-                    }
-                    color="#FFFFFF"
-                  />
-                </Pressable>
-              )}
-
-              {/* ======================================================
-                  PLAY / PAUSE
-              ====================================================== */}
-
-              <Pressable
+              <LinearGradient
+                colors={['#FFB347', '#FF7A18']}
+                start={{ x: 0.2, y: 0 }}
+                end={{ x: 0.8, y: 1 }}
                 style={[
                   styles.playButton,
-                  {
-                    width: Math.max(
-                      66 * scale,
-                      MIN_TOUCH_TARGET +
-                        8
-                    ),
-                    height: Math.max(
-                      66 * scale,
-                      MIN_TOUCH_TARGET +
-                        8
-                    ),
-                    borderRadius:
-                      Math.max(
-                        66 * scale,
-                        MIN_TOUCH_TARGET +
-                          8
-                      ) / 2,
-                  },
+                  { borderRadius: playSize / 2 },
                 ]}
-                onPress={
-                  handlePlayPause
-                }
               >
                 <Ionicons
-                  name={
-                    isPlaying
-                      ? 'pause'
-                      : 'play'
-                  }
-                  size={
-                    25 * scale
-                  }
-                  color="#000"
-                  style={
-                    !isPlaying
-                      ? {
-                          marginLeft: 2,
-                        }
-                      : undefined
-                  }
+                  name={isPlaying ? 'pause' : 'play'}
+                  size={30 * scale}
+                  color="#FFFFFF"
+                  style={!isPlaying ? { marginLeft: 3 } : undefined}
                 />
-              </Pressable>
+              </LinearGradient>
+            </Pressable>
 
-              {/* ======================================================
-                  NEXT
-                  
-                  HIDDEN ON LAST EPISODE
-              ====================================================== */}
+            {/* forward 30 */}
+            <Pressable
+              style={styles.skipCircle}
+              hitSlop={8}
+              onPress={() => skip(SKIP_FORWARD_SECONDS)}
+              accessibilityRole="button"
+              accessibilityLabel={t('player.skipForward', {
+                seconds: SKIP_FORWARD_SECONDS,
+              })}
+            >
+              <Ionicons
+                name="reload-outline"
+                size={44 * scale}
+                color="rgba(255,255,255,0.85)"
+              />
+              <Text style={styles.skipCircleText}>{SKIP_FORWARD_SECONDS}</Text>
+            </Pressable>
 
-              {isLastEpisode ? (
-                <View
-                  style={
-                    styles.sideIcon
-                  }
-                />
-              ) : (
-                <Pressable
-                  style={
-                    styles.sideIcon
-                  }
-                  hitSlop={10}
-                  onPress={
-                    handleNextChapter
-                  }
-                >
-                  <Ionicons
-                    name="play-skip-forward"
-                    size={
-                      22 * scale
-                    }
-                    color="#FFFFFF"
-                  />
-                </Pressable>
-              )}
-
-              {/* ======================================================
-                  MORE
-              ====================================================== */}
-
+            {/* next episode (hidden on last) */}
+            {isLastEpisode ? (
+              <View style={styles.sideIcon} />
+            ) : (
               <Pressable
+                style={styles.sideIcon}
                 hitSlop={10}
-                style={
-                  styles.sideIcon
-                }
+                onPress={handleNextChapter}
+                accessibilityRole="button"
+                accessibilityLabel={t('player.next')}
               >
                 <Ionicons
-                  name="ellipsis-horizontal"
-                  size={
-                    19 * scale
-                  }
-                  color="rgba(255,255,255,0.55)"
+                  name="play-skip-forward"
+                  size={24 * scale}
+                  color={ACCENT_SOFT}
                 />
               </Pressable>
-            </View>
+            )}
           </View>
 
-          {/* ============================================================
-              MUSIC LIST
-          ============================================================ */}
+          {/* ---------- BOTTOM GLASS BAR ---------- */}
 
-          <Pressable
+          <View
             style={[
-              styles.musicListButton,
-              {
-                marginTop:
-                  (isCompactHeight
-                    ? 14
-                    : 20) * scale,
-              },
+              styles.bottomBar,
+              { marginTop: (isCompactHeight ? 12 : 20) * scale },
             ]}
-            onPress={
-              handleOpenMusicList
-            }
           >
-            <Ionicons
-              name="chevron-up"
-              size={13}
-              color="#000000"
-            />
+            {setPlaybackRate ? (
+              <Pressable
+                onPress={cycleSpeed}
+                hitSlop={6}
+                style={styles.speedPill}
+                accessibilityRole="button"
+                accessibilityLabel={t('player.speed')}
+              >
+                <Text style={styles.speedText}>{rate}x</Text>
+              </Pressable>
+            ) : null}
 
-            <Text
-              style={
-                styles.musicListText
-              }
+            {toggleSleepTimer ? (
+              <Pressable
+                onPress={toggleSleepTimer}
+                hitSlop={8}
+                style={styles.barIcon}
+                accessibilityRole="button"
+                accessibilityLabel={t('player.sleepTimer')}
+              >
+                <Ionicons
+                  name="moon-outline"
+                  size={22}
+                  color="rgba(255,255,255,0.8)"
+                />
+              </Pressable>
+            ) : null}
+
+            <Pressable
+              hitSlop={8}
+              style={styles.barIcon}
+              accessibilityRole="button"
+              accessibilityLabel={t('player.bookmark')}
             >
-              Music List
-            </Text>
-          </Pressable>
+              <Ionicons
+                name="bookmark-outline"
+                size={22}
+                color="rgba(255,255,255,0.8)"
+              />
+            </Pressable>
+
+            <Pressable
+              onPress={handleOpenMusicList}
+              hitSlop={8}
+              style={styles.barIcon}
+              accessibilityRole="button"
+              accessibilityLabel={t('player.episodeList')}
+            >
+              <Ionicons
+                name="list"
+                size={24}
+                color="rgba(255,255,255,0.8)"
+              />
+            </Pressable>
+          </View>
         </View>
       </View>
     </View>
@@ -1419,7 +1463,16 @@ export default function PlayerStandardScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: BG_BASE,
+  },
+
+  // a little bigger than the screen so the blur edges never show
+  bgImage: {
+    position: 'absolute',
+    top: -60,
+    left: -60,
+    right: -60,
+    bottom: -60,
   },
 
   content: {
@@ -1441,8 +1494,7 @@ const styles = StyleSheet.create({
 
   modeToggle: {
     flexDirection: 'row',
-    backgroundColor:
-      'rgba(255,255,255,0.16)',
+    backgroundColor: 'rgba(255,255,255,0.16)',
     borderRadius: 16,
     padding: 3,
     zIndex: 10,
@@ -1461,8 +1513,7 @@ const styles = StyleSheet.create({
   },
 
   playNowLabel: {
-    color:
-      'rgba(255,255,255,0.6)',
+    color: 'rgba(255,255,255,0.6)',
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 1.1,
@@ -1474,8 +1525,8 @@ const styles = StyleSheet.create({
 
   bodyAudioMode: {
     alignItems: 'center',
-    justifyContent: 'flex-end',
-    paddingBottom: 20,
+    justifyContent: 'center',
+    paddingBottom: 8,
   },
 
   bodyVideoMode: {
@@ -1493,8 +1544,7 @@ const styles = StyleSheet.create({
 
   videoFrameFull: {
     width: '100%',
-    aspectRatio:
-      VIDEO_ASPECT_RATIO,
+    aspectRatio: VIDEO_ASPECT_RATIO,
     backgroundColor: '#000000',
     overflow: 'hidden',
   },
@@ -1509,8 +1559,7 @@ const styles = StyleSheet.create({
 
   videoLoadingScrim: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor:
-      'rgba(0,0,0,0.55)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
   },
 
   videoLoadingText: {
@@ -1551,11 +1600,9 @@ const styles = StyleSheet.create({
     width: 58,
     height: 58,
     borderRadius: 29,
-    backgroundColor:
-      'rgba(0,0,0,0.4)',
+    backgroundColor: 'rgba(0,0,0,0.4)',
     borderWidth: 1,
-    borderColor:
-      'rgba(255,255,255,0.35)',
+    borderColor: 'rgba(255,255,255,0.35)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1575,20 +1622,19 @@ const styles = StyleSheet.create({
   },
 
   coverArt: {
-    backgroundColor:
-      'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.10)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
 
-    shadowColor: '#000',
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    shadowOffset: {
-      width: 0,
-      height: 10,
-    },
+    // soft glow in the accent colour
+    shadowColor: ACCENT,
+    shadowOpacity: 0.35,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 12 },
 
-    elevation: 10,
+    elevation: 14,
   },
 
   watchVideoPill: {
@@ -1606,10 +1652,7 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOpacity: 0.25,
     shadowRadius: 6,
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
 
     elevation: 4,
   },
@@ -1620,9 +1663,40 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
+  /* ---- titles (audio) ---- */
+
+  titleBlockAudioMode: {
+    width: '100%',
+    alignItems: 'center',
+  },
+
+  storyTitle: {
+    color: '#FFF4E6',
+    fontSize: 28,
+    fontWeight: '600',
+    letterSpacing: 0.4,
+    textAlign: 'center',
+  },
+
+  narrator: {
+    color: ACCENT,
+    marginTop: 6,
+    textAlign: 'center',
+    letterSpacing: 0.3,
+  },
+
+  chapterLabel: {
+    color: 'rgba(255,255,255,0.88)',
+    marginTop: 18,
+    letterSpacing: 0.9,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+
+  /* ---- titles (video) ---- */
+
   storyLabel: {
-    color:
-      'rgba(255,255,255,0.6)',
+    color: 'rgba(255,255,255,0.6)',
     fontSize: 11.5,
     fontWeight: '700',
     letterSpacing: 0.8,
@@ -1635,24 +1709,7 @@ const styles = StyleSheet.create({
     textAlign: 'left',
   },
 
-  titleBlockAudioMode: {
-    width: '100%',
-    alignItems: 'center',
-  },
-
   titleBlockVideoMode: {
-    width: '100%',
-  },
-
-  titleRowAudioMode: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-  },
-
-  titleRowVideoMode: {
     width: '100%',
   },
 
@@ -1668,16 +1725,8 @@ const styles = StyleSheet.create({
     textAlign: 'left',
   },
 
-  favoriteButton: {
-    backgroundColor:
-      'rgba(255,255,255,0.22)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
   trackArtist: {
-    color:
-      'rgba(255,255,255,0.85)',
+    color: 'rgba(255,255,255,0.85)',
     fontSize: 13.5,
     fontWeight: '400',
     marginTop: 4,
@@ -1685,84 +1734,86 @@ const styles = StyleSheet.create({
   },
 
   trackArtistVideoMode: {
-    color:
-      'rgba(255,255,255,0.6)',
+    color: 'rgba(255,255,255,0.6)',
     textAlign: 'left',
   },
+
+  /* ---- footer ---- */
 
   footer: {
     paddingTop: 8,
   },
 
-  footerCard: {
-    backgroundColor:
-      'rgba(0,0,0,0.22)',
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor:
-      'rgba(255,255,255,0.08)',
-    paddingVertical: 18,
-    paddingHorizontal: 16,
+  progressRow: {
+    paddingTop: 6,
+    paddingBottom: 10,
   },
 
-  progressRow: {
-    paddingVertical: 10,
+  waveRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    height: WAVE_HEIGHT,
+    marginBottom: 8,
+  },
+
+  waveBar: {
+    width: 3,
+    borderRadius: 1.5,
   },
 
   progressTrack: {
     height: 3,
     borderRadius: 1.5,
-    backgroundColor:
-      'rgba(255,255,255,0.25)',
+    backgroundColor: 'rgba(255,255,255,0.18)',
     justifyContent: 'center',
   },
 
   progressFill: {
     height: 3,
     borderRadius: 1.5,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: ACCENT_SOFT,
     position: 'absolute',
     left: 0,
   },
 
   progressThumb: {
     position: 'absolute',
-    width: 9,
-    height: 9,
-    borderRadius: 4.5,
-    backgroundColor: '#FFFFFF',
-    marginLeft: -4.5,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#FFE2B8',
+    marginLeft: -6,
 
-    shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
+    shadowColor: ACCENT,
+    shadowOpacity: 0.9,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
 
-    elevation: 3,
+    elevation: 4,
   },
 
   progressThumbActive: {
-    width: 15,
-    height: 15,
-    borderRadius: 7.5,
-    marginLeft: -7.5,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    marginLeft: -9,
   },
 
   timeRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 4,
+    marginTop: 2,
   },
 
   timeText: {
     color: '#FFFFFF',
-    opacity: 0.5,
+    opacity: 0.55,
     fontSize: 12.5,
     fontVariant: ['tabular-nums'],
   },
 
-  /* =======================================================================
-     MAIN PLAYER CONTROLS
-  ======================================================================= */
+  /* ---- controls ---- */
 
   controlsRow: {
     flexDirection: 'row',
@@ -1777,46 +1828,66 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  playButton: {
-    width: 66,
-    height: 66,
-    borderRadius: 33,
-    backgroundColor: '#FFFFFF',
+  skipCircle: {
+    minWidth: MIN_TOUCH_TARGET + 8,
+    minHeight: MIN_TOUCH_TARGET + 8,
     alignItems: 'center',
     justifyContent: 'center',
-
-    shadowColor: '#000',
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-
-    elevation: 6,
   },
 
-  /* =======================================================================
-     MUSIC LIST
-  ======================================================================= */
+  skipCircleText: {
+    position: 'absolute',
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 12,
+    fontWeight: '700',
+  },
 
-  musicListButton: {
-    alignSelf: 'center',
+  playButtonShadow: {
+    shadowColor: ACCENT,
+    shadowOpacity: 0.7,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 10,
+  },
+
+  playButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  /* ---- bottom glass bar ---- */
+
+  bottomBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    minHeight: 25,
-    minWidth: 44,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12.5,
-    backgroundColor: '#FFFFFF',
+    justifyContent: 'space-around',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
   },
 
-  musicListText: {
-    color: '#000000',
+  speedPill: {
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+
+  speedText: {
+    color: '#FFF4E6',
     fontSize: 14,
-    fontWeight: '400',
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+
+  barIcon: {
+    minWidth: MIN_TOUCH_TARGET,
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
