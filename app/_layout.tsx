@@ -8,13 +8,14 @@ import 'react-native-reanimated';
 import { Provider } from 'react-redux';
 
 import initI18n from '@/constants/locales';
+import { UserProvider } from '@/contexts/UserContext';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { MiniPlayer } from '../components/ui/MiniPlayer';
+import ListenTracker from '../hooks/useListenTracker';
 import { PlayerProvider } from '../providers/PlayerProvider';
 import { loadUser } from '../redux/slices/authReducer';
 import { store } from '../redux/store';
 import { useAppDispatch } from '../utils/typedReduxHooks';
-import { UserProvider } from '@/contexts/UserContext';
 
 
 function AppInitializer({ children }: { children: React.ReactNode }) {
@@ -61,45 +62,47 @@ export default function RootLayout() {
   }
 
   return (
-        <UserProvider>
+    <UserProvider>
+      <Provider store={store}>
+        <AppInitializer>
+          <GestureHandlerRootView style={{ flex: 1 }}>
+            <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+              <PlayerProvider>
+                {/* Tracks listening (sessions, heartbeat, resume). Draws nothing.
+                    Must stay INSIDE PlayerProvider + redux Provider. */}
+                <ListenTracker />
 
-    <Provider store={store}>
-      <AppInitializer>
-        <GestureHandlerRootView style={{ flex: 1 }}>
-          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-            <PlayerProvider>
-              <Stack screenOptions={{ headerShown: false }}>
-                <Stack.Screen name="sign-in" />
-                <Stack.Screen
-                  name="playlist-info"
-                  options={{
-                    presentation: 'transparentModal',
-                    animation: 'slide_from_bottom',
-                  }}
-                />
-                <Stack.Screen
-                  name="player-standard"
-                  options={{
-                    presentation: 'transparentModal',
-                    animation: 'slide_from_bottom',
-                  }}
-                />
-                <Stack.Screen
-                  name="profile"
-                  options={{
-                    presentation: 'modal',
-                    animation: 'slide_from_bottom',
-                  }}
-                />
-              </Stack>
-              <MiniPlayer />
-            </PlayerProvider>
-            <StatusBar style="auto" />
-          </ThemeProvider>
-        </GestureHandlerRootView>
-      </AppInitializer>
-    </Provider>
+                <Stack screenOptions={{ headerShown: false }}>
+                  <Stack.Screen name="sign-in" />
+                  <Stack.Screen
+                    name="playlist-info"
+                    options={{
+                      presentation: 'transparentModal',
+                      animation: 'slide_from_bottom',
+                    }}
+                  />
+                  <Stack.Screen
+                    name="player-standard"
+                    options={{
+                      presentation: 'transparentModal',
+                      animation: 'slide_from_bottom',
+                    }}
+                  />
+                  <Stack.Screen
+                    name="profile"
+                    options={{
+                      presentation: 'modal',
+                      animation: 'slide_from_bottom',
+                    }}
+                  />
+                </Stack>
+                <MiniPlayer />
+              </PlayerProvider>
+              <StatusBar style="auto" />
+            </ThemeProvider>
+          </GestureHandlerRootView>
+        </AppInitializer>
+      </Provider>
     </UserProvider>
-
   );
 }

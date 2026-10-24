@@ -3,8 +3,8 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { VideoView } from 'expo-video';
-import { useTranslation } from 'react-i18next';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
   Animated,
@@ -400,10 +400,50 @@ export default function PlayerStandardScreen() {
     return subscribeWaveLevels(() => setWaveTick((t) => t + 1));
   }, [subscribeWaveLevels]);
 
+  /*
+   * FIX (wave not animating):
+   * `liveLevelAvailable` can be true while `audioLevel` never actually
+   * changes (e.g. iOS gives no metering). The old code then switched OFF the
+   * generated animation AND the live bars stayed frozen -> a dead waveform.
+   *
+   * Now "live" only counts when audioLevel really moves. If it is silent for
+   * 1.5s, we fall back to the generated animation automatically.
+   */
+  const [liveAlive, setLiveAlive] = useState(false);
+
+  useEffect(() => {
+    if (!audioLevel || !liveLevelAvailable || !isPlaying) {
+      setLiveAlive(false);
+      return;
+    }
+
+    let last = -1;
+    let lastChange = 0;
+
+    const id = audioLevel.addListener(({ value }) => {
+      if (Math.abs(value - last) > 0.01) {
+        last = value;
+        lastChange = Date.now();
+        setLiveAlive((prev) => (prev ? prev : true));
+      }
+    });
+
+    const timer = setInterval(() => {
+      if (Date.now() - lastChange > 1500) {
+        setLiveAlive(false);
+      }
+    }, 1000);
+
+    return () => {
+      audioLevel.removeListener(id);
+      clearInterval(timer);
+    };
+  }, [audioLevel, liveLevelAvailable, isPlaying]);
+
   const isVideoNow = mode === 'video' || mode === 'checking';
 
-  // live mode = real audio samples are arriving (audio mode only)
-  const liveMode = liveLevelAvailable && !!audioLevel && !isVideoNow;
+  // live mode = real audio samples are really arriving (audio mode only)
+  const liveMode = liveAlive && !!audioLevel && !isVideoNow;
 
   // bars that were already played show their REAL loudness
   let displayWave = baseWave;

@@ -185,6 +185,8 @@ type PlayerContextValue = {
     index: number,
     opts?: {
       autoPlay?: boolean;
+      // optional: start (audio) at this second, e.g. resume position
+      startAt?: number;
     }
   ) => Promise<void>;
 
@@ -329,6 +331,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const busyRef = useRef(false);
 
+  // mirrors `isSeeking` so the audio status listener (which lives as long as
+  // the player, not as long as one render) always reads the latest value
+  const isSeekingRef = useRef(false);
+
   const pendingSeekRef = useRef<{
     target: number;
     requestedAt: number;
@@ -398,6 +404,64 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const audioPlayerRef = useRef<AudioPlayer | null>(null);
 
+  // the listener that feeds elapsed / duration / isPlaying into redux
+  const audioStatusSubRef = useRef<{ remove: () => void } | null>(null);
+
+  /*
+   * FIX (mini player progress line never moved):
+   *
+   * The old code attached this listener inside a useEffect that only re-ran
+   * when [mode, isSeeking, chapterHasAudio, chapterIndex] changed.
+   * But every new chapter creates a NEW AudioPlayer (and removes the old one).
+   * If none of those values changed (e.g. you open another story and play its
+   * episode 1 while episode 1 of the previous story was active, or you replay
+   * the same chapter), the effect did NOT re-run, so the listener stayed on the
+   * old, removed player -> elapsed / duration were never updated again.
+   *
+   * Now the listener is attached right when a player is created, so it always
+   * follows the CURRENT player.
+   */
+  const attachAudioStatus = (player: AudioPlayer) => {
+    audioStatusSubRef.current?.remove();
+
+    audioStatusSubRef.current = player.addListener(
+      "playbackStatusUpdate",
+      (status: AudioStatus) => {
+        // an old player must never write into redux
+        if (audioPlayerRef.current !== player) {
+          return;
+        }
+
+        // while dragging the seek bar the UI shows the drag position
+        if (isSeekingRef.current) {
+          return;
+        }
+
+        // video mode: the video interval owns elapsed / duration
+        if (modeRef.current !== "audio") {
+          return;
+        }
+
+        dispatch(setElapsed(status.currentTime ?? 0));
+
+        // don't wipe a known duration with 0 while the file is still loading
+        const nextDuration = status.duration ?? 0;
+
+        if (nextDuration > 0) {
+          dispatch(setDuration(nextDuration));
+        }
+
+        // while buffering, `playing` can flicker to false even though the user
+        // pressed play: keep showing "playing" in that case
+        const playing =
+          !!status.playing ||
+          (isPlayingRef.current && !!(status as any).isBuffering);
+
+        dispatch(setIsPlaying(playing));
+      }
+    );
+  };
+
   /* =======================================================
      GET AUDIO PLAYER
   ======================================================= */
@@ -408,15 +472,20 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         throw new Error("Audio URL is missing");
       }
 
-      audioPlayerRef.current = createAudioPlayer(currentChapter.audio_url);
+      const player = createAudioPlayer(currentChapter.audio_url);
+
+      audioPlayerRef.current = player;
 
       // On Android, a freshly created AudioPlayer can start at a volume
       // lower than 1.0 (especially right after a duckOthers session), which
       // made playback sound very quiet. Force full volume explicitly.
-      audioPlayerRef.current.volume = 1.0;
+      player.volume = 1.0;
 
       // start reading real audio levels for the waveform
-      waveform.attach(audioPlayerRef.current);
+      waveform.attach(player);
+
+      // feed progress into redux (mini player + player screen)
+      attachAudioStatus(player);
     }
 
     return audioPlayerRef.current;
@@ -575,40 +644,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   /* =======================================================
      AUDIO PROGRESS
+     (now handled by attachAudioStatus, which is attached
+      whenever an AudioPlayer is created - see above)
   ======================================================= */
-
-  useEffect(() => {
-    if (mode !== "audio" || !chapterHasAudio) {
-      return;
-    }
-
-    let player: AudioPlayer;
-
-    try {
-      player = getAudioPlayer();
-    } catch {
-      return;
-    }
-
-    const sub = player.addListener(
-      "playbackStatusUpdate",
-      (status: AudioStatus) => {
-        if (isSeeking) {
-          return;
-        }
-
-        dispatch(setElapsed(status.currentTime ?? 0));
-
-        dispatch(setDuration(status.duration ?? 0));
-
-        dispatch(setIsPlaying(status.playing ?? false));
-      }
-    );
-
-    return () => sub.remove();
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, isSeeking, chapterHasAudio, chapterIndex]);
 
   /* =======================================================
      VIDEO CONTROLS
@@ -858,6 +896,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     nextIndex: number,
     opts?: {
       autoPlay?: boolean;
+      startAt?: number;
     }
   ) => {
     const availableChapters = chaptersRef.current;
@@ -925,6 +964,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       /* REMOVE OLD AUDIO */
 
       waveform.detach();
+
+      // stop the old player's status listener first
+      audioStatusSubRef.current?.remove();
+      audioStatusSubRef.current = null;
 
       if (audioPlayerRef.current) {
         try {
@@ -1001,7 +1044,21 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           // start reading real audio levels for the waveform
           waveform.attach(player);
 
+          // feed progress into redux (mini player + player screen)
+          attachAudioStatus(player);
+
           await waitForAudioReady(player);
+
+          // optional resume position
+          if (opts?.startAt && opts.startAt > 5) {
+            try {
+              await player.seekTo(opts.startAt);
+
+              dispatch(setElapsed(opts.startAt));
+            } catch (seekError) {
+              console.log("Start position seek failed:", seekError);
+            }
+          }
 
           const audioDuration = player.duration ?? 0;
 
@@ -1119,6 +1176,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   ======================================================= */
 
   const beginSeek = (fraction: number) => {
+    isSeekingRef.current = true;
     setIsSeeking(true);
     setDragProgress(fraction);
   };
@@ -1133,6 +1191,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const target = fraction * (durationRef.current || 0);
 
     seekToTime(target).finally(() => {
+      isSeekingRef.current = false;
       setIsSeeking(false);
     });
   };
@@ -1206,6 +1265,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     return () => {
       waveform.detach();
+
+      audioStatusSubRef.current?.remove();
+      audioStatusSubRef.current = null;
 
       try {
         videoPlayer.pause();

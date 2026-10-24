@@ -1,4 +1,5 @@
 import axios from '@/axios.config';
+import ProfileDot from "@/components/ui/ProfileDot";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import type { TFunction } from "i18next";
@@ -15,9 +16,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Path } from "react-native-svg";
-import styles, { COLORS } from "./style";
 import { useFocusRefetch } from "../../hooks/useFocusRefetch";
-import ProfileDot from "@/components/ui/ProfileDot";
+import styles, { COLORS } from "./style";
 /* ---------- API types (matches the real getSearchPageData response) ---------- */
 
 interface ApiCategory {
@@ -166,9 +166,7 @@ const UserIcon = ({ size = 24, color = "#8a8a8a" }: IconProps) => (
 const SEARCH_RESULTS_ROUTE = "/search-results";
 
 function goToSearchResults() {
-  router.push({
-    pathname: "/",
-  });
+  router.push("/search-result");
 }
 
 function goToGenreStories(genre: ApiGenre) {

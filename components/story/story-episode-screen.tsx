@@ -2,11 +2,36 @@ import axios from "@/axios.config";
 import PurchaseOptionsCard from "@/components/ui/PurchaseOptionsCard";
 import WishlistHeart from "@/components/ui/WishlistHeart";
 import { storyWishlisted, useWishlistStore } from "@/redux/slices/wishlistStore";
+import { Ionicons } from "@expo/vector-icons";
+import { useNetInfo } from "@react-native-community/netinfo";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import type { TFunction } from "i18next";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Easing,
+  FlatList,
+  Modal,
+  Platform,
+  Pressable,
+  Share,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Circle, Path } from "react-native-svg";
+import { useDispatch, useSelector } from "react-redux";
 import {
   cancelChapterDownloads,
   cancelStoryDownloads,
-  deleteChapterDownloads,
   debugDownloads,
+  deleteChapterDownloads,
   deleteStoryDownloads,
   downloadChapterMedia,
   downloadStoryChapters,
@@ -21,32 +46,13 @@ import {
   waitForHydration,
 } from "../download/downloadStore";
 import type { Chapter, MediaKind, StoryDetail } from "../download/types";
-import { Ionicons } from "@expo/vector-icons";
-import { useNetInfo } from "@react-native-community/netinfo";
-import type { TFunction } from "i18next";
-import { useTranslation } from "react-i18next";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { StatusBar } from "expo-status-bar";
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  useWindowDimensions,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useDispatch } from "react-redux";
 
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusRefetch } from "../../hooks/useFocusRefetch";
 import { usePlayer } from "../../providers/PlayerProvider";
 import { setIsExpanded } from "../../redux/slices/playerReducer";
+import { RootState } from "../../redux/store";
 import styles, {
   BASE_WIDTH,
   COLORS,
@@ -65,10 +71,26 @@ type RecommendedStory = {
   like?: boolean;
 };
 
+// One story inside the user's cart (comes from backend `getCart`)
+type CartItem = {
+  id: string | number;
+  title: string;
+  cover?: string;
+  genre?: string;
+  price_inr?: number;
+  price_usd?: number;
+};
+
 // TODO: put the route path of THIS screen here (the file name of this screen
 // inside your expo-router `app/` folder), so tapping a recommended story
 // opens its own page.
 const ALBUM_ROUTE = "/album";
+
+// TODO: your checkout / cart screen route (used by the "Checkout" button)
+const CART_ROUTE = "/cart";
+
+// TODO: your website / deep link base (used if backend sends no `share_url`)
+const SHARE_BASE_URL = "https://yourdomain.com/story";
 
 // Backend method that returns the recommended / latest stories
 const RECOMMENDED_METHOD = "getRecommendedStories";
@@ -115,9 +137,188 @@ function formatTotalDuration(chapters: Chapter[], t: TFunction) {
   return t("album.durationM", { m: minutes });
 }
 
-// Zig-zag offsets so the cards "wind" down the screen like the mockup
-const STAGGER_LEFT = [0, 34, 10, 26];
-const STAGGER_RIGHT = [30, 0, 22, 4];
+// Chapters the user has listened to (kept per story while the app is open,
+// so the bright line is still there when you come back to the screen).
+// If your backend sends a flag (listened / is_listened / completed) on each
+// chapter, that is used too (see isChapterListened below).
+const listenedStore = new Map<string, Set<string>>();
+
+// ---- Winding path layout (chapter list) ----
+const NORMAL_H = 64; // normal row height
+const ACTIVE_H = 90; // playing row height
+const ROW_GAP = 22; // gap between rows (the glowing line shows here)
+// 0 = card sticks to left edge, 1 = sticks to right edge
+const PATH_PATTERN = [0, 1, 0.12, 0.88];
+
+function rowGeometry(index: number, active: boolean, rowWidth: number) {
+  const w = active ? rowWidth : Math.round(rowWidth * 0.8);
+  const slack = rowWidth - w;
+  const left = active
+    ? 0
+    : Math.round(slack * PATH_PATTERN[index % PATH_PATTERN.length]);
+  return { w, left, h: active ? ACTIVE_H : NORMAL_H, cx: left + w / 2 };
+}
+
+// Glowing curve from this row's centre to the next row's centre.
+// It is drawn BEHIND the cards (next rows paint on top of it).
+function PathConnector({
+  fromX,
+  toX,
+  fromH,
+  toH,
+  width,
+  lit,
+}: {
+  fromX: number;
+  toX: number;
+  fromH: number;
+  toH: number;
+  width: number;
+  // true = both chapters already listened -> bright glowing line
+  lit: boolean;
+}) {
+  const startY = fromH / 2;
+  const endY = fromH + ROW_GAP + toH / 2;
+  const midY = (startY + endY) / 2;
+  const d = `M ${fromX} ${startY} C ${fromX} ${midY}, ${toX} ${midY}, ${toX} ${endY}`;
+
+  return (
+    <Svg
+      width={width}
+      height={endY + 6}
+      style={{ position: "absolute", top: 0, left: 0 }}
+      pointerEvents="none"
+    >
+      {lit ? (
+        <>
+          {/* outer glow */}
+          <Path
+            d={d}
+            stroke={COLORS.gold}
+            strokeOpacity={0.18}
+            strokeWidth={12}
+            fill="none"
+            strokeLinecap="round"
+          />
+          {/* inner glow */}
+          <Path
+            d={d}
+            stroke={COLORS.gold}
+            strokeOpacity={0.4}
+            strokeWidth={6}
+            fill="none"
+            strokeLinecap="round"
+          />
+          {/* bright core */}
+          <Path
+            d={d}
+            stroke="#FFE2A3"
+            strokeOpacity={1}
+            strokeWidth={2.2}
+            fill="none"
+            strokeLinecap="round"
+          />
+          <Circle cx={fromX} cy={startY} r={5} fill={COLORS.gold} fillOpacity={0.35} />
+          <Circle cx={fromX} cy={startY} r={3} fill="#FFE2A3" />
+          <Circle cx={toX} cy={endY} r={5} fill={COLORS.gold} fillOpacity={0.35} />
+          <Circle cx={toX} cy={endY} r={3} fill="#FFE2A3" />
+        </>
+      ) : (
+        <>
+          {/* dull line: not listened yet */}
+          <Path
+            d={d}
+            stroke="#FFFFFF"
+            strokeOpacity={0.13}
+            strokeWidth={1.6}
+            fill="none"
+            strokeLinecap="round"
+          />
+          <Circle cx={fromX} cy={startY} r={2.5} fill="#FFFFFF" fillOpacity={0.2} />
+          <Circle cx={toX} cy={endY} r={2.5} fill="#FFFFFF" fillOpacity={0.2} />
+        </>
+      )}
+    </Svg>
+  );
+}
+
+// ---------------------------------------------------------
+// Equalizer (wave) bars - animate while playing, flatten when paused
+// ---------------------------------------------------------
+
+function EqualizerBars({
+  playing,
+  color = COLORS.gold,
+}: {
+  playing: boolean;
+  color?: string;
+}) {
+  const bars = useRef([0, 1, 2, 3].map(() => new Animated.Value(0.3))).current;
+
+  useEffect(() => {
+    if (!playing) {
+      bars.forEach((b) => {
+        b.stopAnimation();
+        Animated.timing(b, {
+          toValue: 0.3,
+          duration: 200,
+          useNativeDriver: true,
+        }).start();
+      });
+      return;
+    }
+
+    const loops = bars.map((b, i) => {
+      const d = 360 + i * 90; // each bar different speed = wave look
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(b, {
+            toValue: 1,
+            duration: d,
+            easing: Easing.inOut(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(b, {
+            toValue: 0.25,
+            duration: d,
+            easing: Easing.inOut(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      loop.start();
+      return loop;
+    });
+
+    return () => loops.forEach((l) => l.stop());
+  }, [playing]);
+
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        width: 22,
+        height: 16,
+        marginRight: 8,
+      }}
+    >
+      {bars.map((b, i) => (
+        <Animated.View
+          key={i}
+          style={{
+            width: 3,
+            height: 16,
+            borderRadius: 2,
+            backgroundColor: color,
+            transform: [{ scaleY: b }],
+          }}
+        />
+      ))}
+    </View>
+  );
+}
 
 // ---------------------------------------------------------
 // Cover-driven background
@@ -338,7 +539,7 @@ function DownloadControl({
 }
 
 // ---------------------------------------------------------
-// Track Row (glass card)
+// Track Row (glass card on a winding glowing path)
 // ---------------------------------------------------------
 
 function TrackRow({
@@ -351,7 +552,10 @@ function TrackRow({
   isActive,
   isPlaying,
   fallbackCover,
-  stagger,
+  rowWidth,
+  hasNext,
+  nextActive,
+  lineLit,
   prepareChapters,
   onLockedPress,
 }: {
@@ -364,12 +568,16 @@ function TrackRow({
   isActive: boolean;
   isPlaying: boolean;
   fallbackCover?: string | null;
-  stagger: boolean;
+  rowWidth: number;
+  hasNext: boolean;
+  nextActive: boolean;
+  lineLit: boolean;
   prepareChapters: () => Promise<void>;
   onLockedPress: () => void;
 }) {
   const { t } = useTranslation();
-  const { playChapterAt } = usePlayer();
+  const player = usePlayer() as any;
+  const { playChapterAt } = player;
   const dispatch = useDispatch();
   const router = useRouter();
 
@@ -381,12 +589,19 @@ function TrackRow({
   const unavailableOffline = offline && !hasLocalAudio;
   const dimmed = effectiveLocked || unavailableOffline;
 
+  // Active chapter tap -> pause / resume (does not open the player screen).
+  const togglePlayback = () => {
+    player.handlePlayPause?.();
+  };
+
   const onPressPlay = async () => {
+    if (isActive) {
+      togglePlayback();
+      return;
+    }
+
     if (unavailableOffline) {
-      Alert.alert(
-        t("album.offlineTitle"),
-        t("album.offlineDownloadToListen")
-      );
+      Alert.alert(t("album.offlineTitle"), t("album.offlineDownloadToListen"));
       return;
     }
 
@@ -407,121 +622,129 @@ function TrackRow({
   };
 
   const thumb = (track as any).cover || fallbackCover;
-  // Zig-zag only for short stories. With 100+ episodes a straight, compact
-  // list is easier to scan and scroll.
-  const marginLeft =
-    isActive || !stagger ? 0 : STAGGER_LEFT[index % STAGGER_LEFT.length];
-  const marginRight =
-    isActive || !stagger ? 0 : STAGGER_RIGHT[index % STAGGER_RIGHT.length];
-  const thumbSize = isActive ? 64 : 46;
+  const thumbSize = isActive ? 66 : 46;
   const thumbRadius = isActive ? thumbSize / 2 : 12;
 
+  // winding-path geometry
+  const geo = rowGeometry(index, isActive, rowWidth);
+  const nextGeo = rowGeometry(index + 1, nextActive, rowWidth);
+
   return (
-    <View style={{ marginLeft, marginRight }}>
-      <Pressable
-        onPress={onPressPlay}
-        android_ripple={{ color: "rgba(200,155,76,0.12)" }}
-        style={({ pressed }) => [
-          localStyles.card,
-          isActive && localStyles.cardActive,
-          dimmed && localStyles.cardDimmed,
-          pressed && localStyles.cardPressed,
-        ]}
+    <View style={{ height: geo.h, width: rowWidth, overflow: "visible" }}>
+      {/* glowing line to the next chapter (behind the cards) */}
+      {hasNext && (
+        <PathConnector
+          fromX={geo.cx}
+          toX={nextGeo.cx}
+          fromH={geo.h}
+          toH={nextGeo.h}
+          width={rowWidth}
+          lit={lineLit}
+        />
+      )}
+
+      <View
+        style={{
+          position: "absolute",
+          left: geo.left,
+          width: geo.w,
+          height: geo.h,
+        }}
       >
-        {/* Thumbnail */}
-        <View
-          style={[
-            localStyles.thumbWrap,
-            {
-              width: thumbSize,
-              height: thumbSize,
-              borderRadius: thumbRadius,
-            },
-            isActive && localStyles.thumbWrapActive,
+        <Pressable
+          onPress={onPressPlay}
+          android_ripple={{ color: "rgba(200,155,76,0.12)" }}
+          style={({ pressed }) => [
+            localStyles.card,
+            { height: geo.h, backgroundColor: "rgba(18,15,14,0.92)" },
+            isActive && localStyles.cardActive,
+            isActive && { backgroundColor: "rgba(52,38,14,0.94)" },
+            dimmed && localStyles.cardDimmed,
+            pressed && localStyles.cardPressed,
           ]}
         >
-          {!!thumb && (
-            <Image
-              source={{ uri: thumb }}
-              style={{
-                width: "100%",
-                height: "100%",
-                borderRadius: thumbRadius,
-              }}
-              contentFit="cover"
-              transition={150}
-              cachePolicy="memory-disk"
-              recyclingKey={String(track.id)}
-              blurRadius={effectiveLocked ? 6 : 0}
-            />
-          )}
-
-          {isActive && (
-            <View style={localStyles.thumbCenterIcon}>
-              <Ionicons
-                name={isPlaying ? "pause" : "play"}
-                size={20}
-                color={COLORS.cream}
-              />
-            </View>
-          )}
-
-          {/* Downloaded tick */}
-          {hasLocalAudio && !isActive && (
-            <View style={localStyles.tickBadge}>
-              <Ionicons name="checkmark" size={12} color="#0B2A1D" />
-            </View>
-          )}
-        </View>
-
-        {/* Info */}
-        <View style={localStyles.cardInfo}>
-          <Text
-            style={[localStyles.cardTitle, isActive && localStyles.cardTitleActive]}
-            numberOfLines={1}
+          {/* Thumbnail */}
+          <View
+            style={[
+              localStyles.thumbWrap,
+              { width: thumbSize, height: thumbSize, borderRadius: thumbRadius },
+              isActive && localStyles.thumbWrapActive,
+            ]}
           >
-            {track.title}
-          </Text>
-
-          {isActive ? (
-            <View style={localStyles.activeMetaRow}>
-              <Ionicons
-                name="stats-chart"
-                size={13}
-                color={COLORS.gold}
-                style={{ marginRight: 6 }}
+            {!!thumb && (
+              <Image
+                source={{ uri: thumb }}
+                style={{ width: "100%", height: "100%", borderRadius: thumbRadius }}
+                contentFit="cover"
+                transition={150}
+                cachePolicy="memory-disk"
+                recyclingKey={String(track.id)}
+                blurRadius={effectiveLocked ? 6 : 0}
               />
-              <Text style={localStyles.cardTime}>
-                {String(track.number).padStart(2, "0")} ·{" "}
-                {isPlaying ? t("album.nowPlaying") : t("album.paused")} ·{" "}
-                {track.duration}
-              </Text>
-            </View>
-          ) : (
-            <Text style={localStyles.cardTime}>
-              {String(track.number).padStart(2, "0")} · {track.duration}
-            </Text>
-          )}
-        </View>
+            )}
 
-        {/* Right side */}
-        <View style={localStyles.cardRight}>
-          {effectiveLocked ? (
-            <Ionicons name="lock-closed" size={18} color={COLORS.textFainter} />
-          ) : unavailableOffline ? (
-            <Text style={localStyles.lockedLabel}>{t("album.onlineOnly")}</Text>
-          ) : (
-            <>
-              {track.video_status === 1 && (
-                <View style={localStyles.videoBadge}>
-                  <Ionicons name="videocam" size={11} color={COLORS.gold} />
-                </View>
-              )}
-              <DownloadControl story={story} track={track} />
-            </>
-          )}
-        </View>
-      </Pressable>
+            {isActive && (
+              <View style={localStyles.thumbCenterIcon}>
+                <Ionicons
+                  name={isPlaying ? "pause" : "play"}
+                  size={20}
+                  color={COLORS.cream}
+                />
+              </View>
+            )}
+
+            {/* Downloaded tick */}
+            {hasLocalAudio && !isActive && (
+              <View style={localStyles.tickBadge}>
+                <Ionicons name="checkmark" size={12} color="#0B2A1D" />
+              </View>
+            )}
+          </View>
+
+          {/* Info */}
+          <View style={localStyles.cardInfo}>
+            <Text
+              style={[localStyles.cardTitle, isActive && localStyles.cardTitleActive]}
+              numberOfLines={1}
+            >
+              {track.title}
+            </Text>
+
+            {isActive ? (
+              <View style={localStyles.activeMetaRow}>
+                <EqualizerBars playing={isPlaying} />
+                <Text style={localStyles.cardTime}>
+                  {String(track.number).padStart(2, "0")} ·{" "}
+                  {isPlaying ? t("album.nowPlaying") : t("album.paused")} ·{" "}
+                  {track.duration}
+                </Text>
+              </View>
+            ) : (
+              <Text style={localStyles.cardTime}>
+                {String(track.number).padStart(2, "0")} · {track.duration}
+              </Text>
+            )}
+          </View>
+
+          {/* Right side */}
+          <View style={localStyles.cardRight}>
+            {effectiveLocked ? (
+              <Ionicons name="lock-closed" size={18} color={COLORS.textFainter} />
+            ) : unavailableOffline ? (
+              <Text style={localStyles.lockedLabel}>{t("album.onlineOnly")}</Text>
+            ) : (
+              <>
+                {track.video_status === 1 && (
+                  <View style={localStyles.videoBadge}>
+                    <Ionicons name="videocam" size={11} color={COLORS.gold} />
+                  </View>
+                )}
+                <DownloadControl story={story} track={track} />
+              </>
+            )}
+          </View>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -724,25 +947,60 @@ export default function AlbumScreen() {
   const [cartState, setCartState] = useState<"idle" | "loading" | "added">(
     "idle"
   );
+  // Total number of stories in the user's cart (shown as badge on cart icon)
+  const [cartCount, setCartCount] = useState(0);
+  // Cart popup (opens from the header cart icon) + the stories inside it
+  const [cartOpen, setCartOpen] = useState(false);
+  const [cartLoading, setCartLoading] = useState(false);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [currency, setCurrency] = useState<"INR" | "USD">("INR");
 
-  // NOTE: `currentChapter` / `isPlaying` are read defensively. If your
-  // PlayerProvider exposes them with different names, change them here.
   const player = usePlayer() as any;
   const { playChapterAt, setChapters } = player;
   const currentChapterId: number | string | undefined =
     player.currentChapter?.id ?? player.currentTrack?.id;
-  const isPlayerPlaying: boolean = !!(player.isPlaying ?? player.playing);
+
+  // Read isPlaying from the SAME redux slice the player screen uses
+  const isPlayerPlaying = useSelector((s: RootState) => !!s.player.isPlaying);
 
   // Which story does the player (mini player) currently hold?
-  // playerChapters below carry `storyId`, so the provider's current chapter /
-  // list tells us. If your provider names these differently, change here.
   const playerStoryId: string | number | undefined =
     player.currentChapter?.storyId ??
     player.currentTrack?.storyId ??
     player.chapters?.[0]?.storyId;
   const playerHasStory = playerStoryId !== undefined && playerStoryId !== null;
   const dispatch = useDispatch();
+
+  // Listened chapters of THIS story (drives the bright / dull line)
+  const [listenedIds, setListenedIds] = useState<Set<string>>(new Set());
+
+  // story changed -> load what was already listened for it
+  useEffect(() => {
+    if (!storyDetail) return;
+    setListenedIds(
+      new Set(listenedStore.get(String(storyDetail.id)) ?? [])
+    );
+  }, [storyDetail?.id]);
+
+  // a chapter of THIS story is playing -> mark it as listened
+  useEffect(() => {
+    if (!storyDetail || currentChapterId === undefined) return;
+    if (String(playerStoryId) !== String(storyDetail.id)) return;
+
+    const sid = String(storyDetail.id);
+    const cid = String(currentChapterId);
+
+    const saved = listenedStore.get(sid) ?? new Set<string>();
+    saved.add(cid);
+    listenedStore.set(sid, saved);
+
+    setListenedIds((prev) => {
+      if (prev.has(cid)) return prev;
+      const next = new Set(prev);
+      next.add(cid);
+      return next;
+    });
+  }, [currentChapterId, playerStoryId, storyDetail?.id]);
 
   // Network state
   const netInfo = useNetInfo();
@@ -792,7 +1050,6 @@ export default function AlbumScreen() {
   // (e.g. after closing the player, finishing a purchase, or changing the
   // language), so story, lock state and recommendations are always fresh.
   // First load shows the spinner; later refetches are silent.
-  // (We keep our own `loading` state, so the hook's `loading` isn't used.)
   useFocusRefetch(async () => {
     if (!storyId) return;
 
@@ -824,6 +1081,7 @@ export default function AlbumScreen() {
     setIsSubscribed(false);
     setFromCache(false);
     setCartState("idle");
+    setCartOpen(false);
     setRecommended([]);
     setTab("chapters");
     setError(null);
@@ -936,6 +1194,10 @@ export default function AlbumScreen() {
         setRented(Boolean((story as any).is_rented));
         setIsSubscribed(Boolean((story as any).is_subscribed));
         setFromCache(false);
+
+        // Cart: total items in cart + is THIS story already in the cart
+        setCartCount(Number((story as any).cart_count ?? 0));
+        setCartState((story as any).in_cart ? "added" : "idle");
 
         // Backend `like` anuppina, global wishlist store la seed panrom
         // (store la already value irundha overwrite aagadhu)
@@ -1050,11 +1312,13 @@ export default function AlbumScreen() {
     try {
       setCartState("loading");
 
-      await axios.post("/", {
+      const res = await axios.post("/", {
         method: "addToCart",
         story_id: Number(storyDetail.id),
       });
 
+      const data = res.data?.data;
+      setCartCount(Number(data?.cart_count ?? cartCount + 1));
       setCartState("added");
     } catch (error: any) {
       console.error("Add to cart error:", error);
@@ -1066,6 +1330,133 @@ export default function AlbumScreen() {
           error?.message ||
           t("album.download.tryAgain")
       );
+    }
+  };
+
+  // -------------------------------------------------------
+  // Cart popup: list of stories in the cart
+  // -------------------------------------------------------
+
+  const fetchCart = async () => {
+    try {
+      setCartLoading(true);
+
+      const res = await axios.post("/", { method: "getCart" });
+      const payload = res.data?.data;
+      const list: any[] = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.items)
+        ? payload.items
+        : [];
+
+      const items: CartItem[] = list
+        .filter((s) => s && s.id != null)
+        .map((s) => ({
+          id: s.id,
+          title: s.title,
+          cover: s.cover,
+          genre: s.genre,
+          price_inr: s.price_inr,
+          price_usd: s.price_usd,
+        }));
+
+      setCartItems(items);
+      setCartCount(Number(payload?.cart_count ?? items.length));
+    } catch (err: any) {
+      console.error("getCart error:", err);
+      Alert.alert(
+        t("album.cart.failTitle"),
+        err?.response?.data?.message ||
+          err?.message ||
+          t("album.download.tryAgain")
+      );
+      setCartOpen(false);
+    } finally {
+      setCartLoading(false);
+    }
+  };
+
+  // Header cart icon: just OPEN the list (adding is done from the
+  // purchase card / locked episode popup)
+  const handleCartPress = () => {
+    if (offline) {
+      Alert.alert(t("album.offlineTitle"), t("album.offlineConnectUnlock"));
+      return;
+    }
+    setCartOpen(true);
+    fetchCart();
+  };
+
+  const closeCart = () => setCartOpen(false);
+
+  const handleRemoveFromCart = async (item: CartItem) => {
+    // remove right away, put it back if the request fails
+    const previous = cartItems;
+    setCartItems(previous.filter((c) => String(c.id) !== String(item.id)));
+
+    try {
+      const res = await axios.post("/", {
+        method: "removeFromCart",
+        story_id: Number(item.id),
+      });
+
+      setCartCount(
+        Number(res.data?.data?.cart_count ?? Math.max(previous.length - 1, 0))
+      );
+
+      // removed the story we are looking at -> header icon goes back to normal
+      if (storyDetail && String(item.id) === String(storyDetail.id)) {
+        setCartState("idle");
+      }
+    } catch (err: any) {
+      console.error("removeFromCart error:", err);
+      setCartItems(previous);
+      Alert.alert(
+        t("album.cart.failTitle"),
+        err?.response?.data?.message ||
+          err?.message ||
+          t("album.download.tryAgain")
+      );
+    }
+  };
+
+  const openCartStory = (item: CartItem) => {
+    closeCart();
+    if (storyDetail && String(item.id) === String(storyDetail.id)) return;
+
+    router.push({
+      pathname: ALBUM_ROUTE as any,
+      params: {
+        storyId: String(item.id),
+        title: item.title,
+        cover: item.cover,
+      },
+    });
+  };
+
+  const handleCheckout = () => {
+    closeCart();
+    router.push(CART_ROUTE as any);
+  };
+
+  // -------------------------------------------------------
+  // Share story
+  // -------------------------------------------------------
+
+  const handleShare = async () => {
+    if (!storyDetail) return;
+
+    const url =
+      (storyDetail as any).share_url ?? `${SHARE_BASE_URL}/${storyDetail.id}`;
+
+    try {
+      await Share.share(
+        Platform.OS === "ios"
+          ? { message: storyDetail.title, url }
+          : { message: `${storyDetail.title}\n${url}` }
+      );
+    } catch (err) {
+      console.warn("Share error:", err);
     }
   };
 
@@ -1257,11 +1648,22 @@ export default function AlbumScreen() {
   const allUnlockedDownloaded =
     unlockedChapters.length > 0 && downloadedCount >= unlockedChapters.length;
 
+  // Is the player (mini player) already holding THIS story?
+  const isThisStoryActive =
+    playerHasStory && String(playerStoryId) === String(storyDetail.id);
+
   // -------------------------------------------------------
   // Play entire story
   // -------------------------------------------------------
 
   const handlePlayAlbum = async () => {
+    // This story is already loaded in the player -> the big Play
+    // button pauses / resumes instead of restarting episode 1.
+    if (isThisStoryActive) {
+      player.handlePlayPause?.();
+      return;
+    }
+
     if (playerChapters.length === 0) {
       if (isOfflineMode) {
         Alert.alert(
@@ -1312,12 +1714,12 @@ export default function AlbumScreen() {
         t("album.download.downloadedTitle"),
         t("album.download.allDownloaded"),
         [
-        { text: t("album.download.close"), style: "cancel" },
-        {
-          text: t("album.download.removeAll"),
-          style: "destructive",
-          onPress: () => deleteStoryDownloads(storyDetail.id),
-        },
+          { text: t("album.download.close"), style: "cancel" },
+          {
+            text: t("album.download.removeAll"),
+            style: "destructive",
+            onPress: () => deleteStoryDownloads(storyDetail.id),
+          },
         ]
       );
       return;
@@ -1364,7 +1766,7 @@ export default function AlbumScreen() {
 
   const listHeader = (
     <View style={{ paddingHorizontal: horizontalPadding }}>
-      {/* Top bar: back | favourite, download-all, more */}
+      {/* Top bar: back | favourite, download-all, cart (with count), share */}
       <View style={[localStyles.topBar, { marginTop: insets.top + 6 }]}>
         <Pressable
           hitSlop={10}
@@ -1389,6 +1791,7 @@ export default function AlbumScreen() {
             inactiveColor={COLORS.cream}
           />
 
+          {/* Download all episodes */}
           <Pressable
             hitSlop={8}
             onPress={handleDownloadAll}
@@ -1409,16 +1812,43 @@ export default function AlbumScreen() {
             )}
           </Pressable>
 
+          {/* Cart (replaces the old 3-dot button): count badge, tap = list */}
           <Pressable
             hitSlop={8}
+            onPress={handleCartPress}
             style={({ pressed }) => [
               localStyles.iconButton,
               pressed && { opacity: 0.6 },
             ]}
             accessibilityRole="button"
-            accessibilityLabel={t("album.more")}
+            accessibilityLabel={t("album.cart.open", "Open cart")}
           >
-            <Ionicons name="ellipsis-horizontal" size={22} color={COLORS.cream} />
+            <Ionicons
+              name={cartCount > 0 ? "cart" : "cart-outline"}
+              size={23}
+              color={cartState === "added" ? COLORS.gold : COLORS.cream}
+            />
+            {cartCount > 0 && (
+              <View style={localStyles.cartBadge}>
+                <Text style={localStyles.cartBadgeText}>
+                  {cartCount > 99 ? "99+" : cartCount}
+                </Text>
+              </View>
+            )}
+          </Pressable>
+
+          {/* Share */}
+          <Pressable
+            hitSlop={8}
+            onPress={handleShare}
+            style={({ pressed }) => [
+              localStyles.iconButton,
+              pressed && { opacity: 0.6 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={t("album.share", "Share")}
+          >
+            <Ionicons name="share-outline" size={22} color={COLORS.cream} />
           </Pressable>
         </View>
       </View>
@@ -1483,8 +1913,16 @@ export default function AlbumScreen() {
               accessibilityRole="button"
               accessibilityLabel={t("album.playStory")}
             >
-              <Ionicons name="play" size={16} color={COLORS.bgDeep} />
-              <Text style={localStyles.playPillText}>{t("album.play")}</Text>
+              <Ionicons
+                name={isThisStoryActive && isPlayerPlaying ? "pause" : "play"}
+                size={16}
+                color={COLORS.bgDeep}
+              />
+              <Text style={localStyles.playPillText}>
+                {isThisStoryActive && isPlayerPlaying
+                  ? t("album.pause", "Pause")
+                  : t("album.play")}
+              </Text>
             </Pressable>
 
             {hasPaidContent && !isOfflineMode && (
@@ -1616,36 +2054,66 @@ export default function AlbumScreen() {
       <FlatList
         data={tab === "chapters" ? storyDetail.chapters : []}
         keyExtractor={(item) => String(item.id)}
-        renderItem={({ item, index }) => (
-          <View style={{ paddingHorizontal: horizontalPadding }}>
-            <TrackRow
-              track={item}
-              story={storyDetail}
-              index={index}
-              chapterIndex={chapterIndexById.get(String(item.id)) ?? -1}
-              locked={!isFree(item) && !hasAccess}
-              offline={isOfflineMode}
-              isActive={
-                playerHasStory &&
-                String(playerStoryId) === String(storyDetail.id) &&
-                currentChapterId !== undefined &&
-                String(currentChapterId) === String(item.id)
-              }
-              isPlaying={isPlayerPlaying}
-              fallbackCover={coverUri}
-              stagger={storyDetail.chapters.length <= 12}
-              prepareChapters={prepareChapters}
-              onLockedPress={onLockedChapterPress}
-            />
-          </View>
-        )}
-        ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+        // re-render rows when play / pause or the active chapter changes
+        extraData={`${isPlayerPlaying}-${currentChapterId}-${playerStoryId}-${listenedIds.size}`}
+        renderItem={({ item, index }) => {
+          const chapters = storyDetail.chapters;
+          const next = chapters[index + 1];
+          const rowWidth = contentWidth - horizontalPadding * 2;
+
+          const isItemActive = (c?: Chapter) =>
+            !!c &&
+            isThisStoryActive &&
+            currentChapterId !== undefined &&
+            String(currentChapterId) === String(c.id);
+
+          // listened = played in the app OR flagged by the backend
+          const isChapterListened = (c?: Chapter) => {
+            if (!c) return false;
+            const flag: any = c;
+            return (
+              isItemActive(c) ||
+              listenedIds.has(String(c.id)) ||
+              flag.listened === true ||
+              flag.is_listened === true ||
+              flag.is_listened === 1 ||
+              flag.completed === true
+            );
+          };
+
+          // bright line only between two listened chapters
+          const lineLit = isChapterListened(item) && isChapterListened(next);
+
+          return (
+            <View style={{ paddingHorizontal: horizontalPadding }}>
+              <TrackRow
+                track={item}
+                story={storyDetail}
+                index={index}
+                chapterIndex={chapterIndexById.get(String(item.id)) ?? -1}
+                locked={!isFree(item) && !hasAccess}
+                offline={isOfflineMode}
+                isActive={isItemActive(item)}
+                isPlaying={isPlayerPlaying}
+                fallbackCover={coverUri}
+                rowWidth={rowWidth}
+                hasNext={!!next}
+                nextActive={isItemActive(next)}
+                lineLit={lineLit}
+                prepareChapters={prepareChapters}
+                onLockedPress={onLockedChapterPress}
+              />
+            </View>
+          );
+        }}
+        ItemSeparatorComponent={() => <View style={{ height: ROW_GAP }} />}
         // 100+ episodes: only render what is near the screen
         initialNumToRender={10}
         maxToRenderPerBatch={8}
         updateCellsBatchingPeriod={50}
         windowSize={7}
-        removeClippedSubviews={Platform.OS === "android"}
+        // off, so the glowing line between rows never gets clipped
+        removeClippedSubviews={false}
         ListHeaderComponent={listHeader}
         ListFooterComponent={listFooter}
         contentContainerStyle={{
@@ -1656,6 +2124,127 @@ export default function AlbumScreen() {
         }}
         showsVerticalScrollIndicator={false}
       />
+
+      {/* Cart popup: stories added to cart */}
+      <Modal
+        visible={cartOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={closeCart}
+      >
+        <View style={localStyles.cartOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={closeCart} />
+
+          <View
+            style={[
+              localStyles.cartSheet,
+              { paddingBottom: insets.bottom + 16 },
+            ]}
+          >
+            <View style={localStyles.cartHandle} />
+
+            <View style={localStyles.cartHeaderRow}>
+              <Text style={localStyles.cartTitle}>
+                {t("album.cart.title", "My Cart")}
+                {cartCount > 0 ? `  (${cartCount})` : ""}
+              </Text>
+              <Pressable
+                hitSlop={10}
+                onPress={closeCart}
+                accessibilityRole="button"
+                accessibilityLabel={t("album.download.close")}
+              >
+                <Ionicons name="close" size={22} color={COLORS.cream} />
+              </Pressable>
+            </View>
+
+            {cartLoading ? (
+              <View style={localStyles.cartCenter}>
+                <ActivityIndicator size="small" color={COLORS.gold} />
+              </View>
+            ) : cartItems.length === 0 ? (
+              <View style={localStyles.cartCenter}>
+                <Ionicons name="cart-outline" size={34} color={COLORS.textFaint} />
+                <Text style={localStyles.emptyTitle}>{t("album.cart.empty", "Your cart is empty")}</Text>
+                <Text style={localStyles.emptySub}>
+                  {t("album.cart.emptyHint", "Stories you add to the cart will show up here.")}
+                </Text>
+              </View>
+            ) : (
+              <>
+                <FlatList
+                  data={cartItems}
+                  keyExtractor={(item) => String(item.id)}
+                  style={{ maxHeight: 360 }}
+                  showsVerticalScrollIndicator={false}
+                  ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+                  renderItem={({ item }) => {
+                    const price =
+                      currency === "INR" ? item.price_inr : item.price_usd;
+                    return (
+                      <Pressable
+                        onPress={() => openCartStory(item)}
+                        style={({ pressed }) => [
+                          localStyles.cartRow,
+                          pressed && localStyles.cardPressed,
+                        ]}
+                      >
+                        <Image
+                          source={{ uri: item.cover }}
+                          style={localStyles.cartRowCover}
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                          recyclingKey={String(item.id)}
+                        />
+                        <View style={localStyles.cardInfo}>
+                          <Text style={localStyles.cardTitle} numberOfLines={2}>
+                            {item.title}
+                          </Text>
+                          {!!item.genre && (
+                            <Text style={localStyles.recGenre} numberOfLines={1}>
+                              {item.genre}
+                            </Text>
+                          )}
+                          {price !== undefined && (
+                            <Text style={localStyles.cartRowPrice}>
+                              {formatPrice(price, currency)}
+                            </Text>
+                          )}
+                        </View>
+                        <Pressable
+                          hitSlop={10}
+                          onPress={() => handleRemoveFromCart(item)}
+                          accessibilityRole="button"
+                          accessibilityLabel={t("album.cart.remove", "Remove from cart")}
+                        >
+                          <Ionicons
+                            name="trash-outline"
+                            size={19}
+                            color={COLORS.textFaint}
+                          />
+                        </Pressable>
+                      </Pressable>
+                    );
+                  }}
+                />
+
+                <Pressable
+                  onPress={handleCheckout}
+                  style={({ pressed }) => [
+                    localStyles.checkoutButton,
+                    pressed && { opacity: 0.9 },
+                  ]}
+                  accessibilityRole="button"
+                >
+                  <Text style={localStyles.checkoutText}>
+                    {t("album.cart.checkout", "Checkout")}
+                  </Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1716,6 +2305,104 @@ const localStyles = StyleSheet.create({
   },
   iconButtonFilled: {
     backgroundColor: "rgba(255,255,255,0.10)",
+  },
+
+  // ---- Cart badge ----
+  cartBadge: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    minWidth: 17,
+    height: 17,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: COLORS.gold,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "rgba(7,6,10,0.8)",
+  },
+  cartBadgeText: {
+    color: COLORS.bgDeep,
+    fontSize: 10,
+    fontWeight: "800",
+  },
+
+  // ---- Cart popup ----
+  cartOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  cartSheet: {
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: GLASS_BORDER,
+    backgroundColor: "#14110F",
+  },
+  cartHandle: {
+    alignSelf: "center",
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    marginBottom: 14,
+  },
+  cartHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  cartTitle: {
+    color: COLORS.cream,
+    fontSize: 17,
+    fontWeight: "700",
+  },
+  cartCenter: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+    gap: 8,
+  },
+  cartRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 8,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: GLASS_BORDER,
+    backgroundColor: GLASS,
+  },
+  cartRowCover: {
+    width: 56,
+    height: 56,
+    borderRadius: 12,
+    backgroundColor: COLORS.maroon,
+  },
+  cartRowPrice: {
+    color: COLORS.gold,
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 3,
+  },
+  checkoutButton: {
+    marginTop: 16,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.gold,
+  },
+  checkoutText: {
+    color: COLORS.bgDeep,
+    fontSize: 15,
+    fontWeight: "700",
   },
 
   errorIconWrap: {
