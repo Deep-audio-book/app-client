@@ -89,7 +89,7 @@
     "openMenu": "More options for {{name}}",
     "openNarrator": "Open {{name}}"
   },
-  "profile": {
+   "profile": {
     "title": "Profile",
     "closeProfile": "Close profile",
     "defaultName": "there",
@@ -104,7 +104,97 @@
     "subscriptionValidUntil": "Valid until {{date}}",
     "restorePurchases": "Restore purchases",
     "enterPromoCode": "Enter promo code",
-    "logOut": "Log out"
+    "logOut": "Log out",
+    "shopSection": "Shop",
+    "myCart": "My cart",
+    "myOrders": "My orders",
+    "total": "Total",
+    "checkout": "Checkout",
+    "cartEmpty": "Your cart is empty",
+    "cartEmptySub": "Books you add will show up here.",
+    "removeItem": "Remove",
+    "editProfile": "Edit profile",
+    "name": "Name",
+    "namePlaceholder": "Your name",
+    "email": "Email",
+    "emailLocked": "Email can't be changed here. Contact support if you need to update it.",
+    "saveChanges": "Save changes",
+    "saveFailed": "Couldn't save your changes. Check your connection and try again.",
+    "supportSection": "Help & support",
+    "helpCenter": "Help center",
+    "contactUs": "Contact us",
+    "contactIntro": "We usually reply within 24 hours.",
+    "emailUs": "Email",
+    "whatsappSub": "Chat with our team",
+    "callUs": "Call",
+    "aboutSection": "About",
+    "aboutUs": "About us",
+    "appName": "Deep Audiobooks",
+    "version": "Version",
+    "aboutBody": "Listen to stories anywhere and download episodes for offline listening. Made with care for story lovers.",
+    "terms": "Terms and conditions",
+    "privacy": "Privacy policy"
+  },
+  "legal": {
+    "lastUpdated": "Last updated: 2026",
+    "terms": {
+      "intro": "Please read these terms carefully before using Deep Audiobooks.",
+      "using": {
+        "title": "Using Deep Audiobooks",
+        "p1": "By creating an account or listening on Deep Audiobooks you agree to these terms. Please use the service lawfully and only for personal, non-commercial listening."
+      },
+      "account": {
+        "title": "Your account",
+        "b1": "Keep your password safe; you are responsible for activity on your account.",
+        "b2": "Give us accurate details when you register.",
+        "b3": "We may suspend accounts that misuse the service or break these terms."
+      },
+      "content": {
+        "title": "Content and licence",
+        "p1": "All audiobooks, stories, artwork and text on Deep Audiobooks belong to us or our content partners. Your plan gives you a personal, non-transferable right to listen. You may not copy, record, resell or redistribute the content."
+      },
+      "plans": {
+        "title": "Plans and payments",
+        "p1": "Paid plans are described on the Plans page. Prices and features may change; any change will not affect a plan you have already paid for until it renews. See our Refund and Cancellation Policy for details."
+      },
+      "availability": {
+        "title": "Availability",
+        "p1": "We work hard to keep Deep Audiobooks available but cannot promise uninterrupted service. We may update or remove features and titles from time to time."
+      },
+      "contact": {
+        "title": "Contact",
+        "p1": "Questions about these terms? Reach us through the Contact Us page."
+      }
+    },
+    "privacy": {
+      "intro": "Your privacy matters to us. This page explains what Deep Audiobooks collects, why, and how it is used.",
+      "collect": {
+        "title": "Information we collect",
+        "p1": "When you use Deep Audiobooks we collect only what we need to run the service:",
+        "b1": "Account details you give us: name, email address, mobile number and password.",
+        "b2": "Listening activity: the stories you play, how far you listened, your favourites and ratings.",
+        "b3": "Basic device and usage information that helps us keep the app and website working."
+      },
+      "use": {
+        "title": "How we use your information",
+        "b1": "To create your account and let you sign in.",
+        "b2": "To remember your recently listened stories and favourites so you can resume anywhere.",
+        "b3": "To improve recommendations, fix problems and keep the service secure.",
+        "b4": "To send service messages and, if you subscribe, our newsletter."
+      },
+      "sharing": {
+        "title": "Sharing",
+        "p1": "We do not sell your personal information. We only share it with service providers who help us run Deep Audiobooks (for example hosting and payment providers), or when the law requires it."
+      },
+      "choices": {
+        "title": "Your choices",
+        "p1": "You can ask us to correct or delete your account information, and you can unsubscribe from the newsletter at any time. Write to us from the Contact Us page and we will help."
+      },
+      "changes": {
+        "title": "Changes to this policy",
+        "p1": "If we change this policy we will update this page and the date above."
+      }
+    }
   },
   "favorites": {
     "title": "Favorites",

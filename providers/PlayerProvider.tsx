@@ -77,6 +77,8 @@ function clampValue(value: number, min: number, max: number) {
   return value;
 }
 
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 /* =========================================================
    CHECK AUDIO
 ========================================================= */
@@ -152,6 +154,60 @@ function waitForVideoReady(
       sub.remove();
       resolve();
     }, 12000);
+  });
+}
+
+/* =========================================================
+   SEEK AUDIO + VERIFY
+   seekTo() can resolve before the position is really applied
+   (mp3 on iOS). We check the real currentTime and retry once.
+========================================================= */
+
+async function seekAudioAndWait(player: AudioPlayer, target: number) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await player.seekTo(target);
+
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < 1200) {
+      const now = (player as any).currentTime ?? 0;
+
+      if (Math.abs(now - target) < 1.5) {
+        return;
+      }
+
+      await sleep(100);
+    }
+  }
+}
+
+/* =========================================================
+   SEEK VIDEO + VERIFY
+   Seek while PAUSED, wait until the player really reached
+   the position and is ready. Only then the caller presses play.
+   This removes the "taku taku" stutter / fast-forward look.
+========================================================= */
+
+function seekVideoAndWait(
+  player: ReturnType<typeof useVideoPlayer>,
+  target: number
+): Promise<void> {
+  return new Promise((resolve) => {
+    player.currentTime = target;
+
+    const startedAt = Date.now();
+
+    const timer = setInterval(() => {
+      const near = Math.abs((player.currentTime ?? 0) - target) < 1;
+
+      if (
+        (near && player.status === "readyToPlay") ||
+        Date.now() - startedAt > 4000
+      ) {
+        clearInterval(timer);
+        resolve();
+      }
+    }, 100);
   });
 }
 
@@ -331,6 +387,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const busyRef = useRef(false);
 
+  // true only while audio <-> video toggle is running.
+  // The video status listener must NOT set mode / auto-play during that time,
+  // the toggle handler controls the order itself.
+  const togglingRef = useRef(false);
+
   // mirrors `isSeeking` so the audio status listener (which lives as long as
   // the player, not as long as one render) always reads the latest value
   const isSeekingRef = useRef(false);
@@ -408,17 +469,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const audioStatusSubRef = useRef<{ remove: () => void } | null>(null);
 
   /*
-   * FIX (mini player progress line never moved):
-   *
-   * The old code attached this listener inside a useEffect that only re-ran
-   * when [mode, isSeeking, chapterHasAudio, chapterIndex] changed.
-   * But every new chapter creates a NEW AudioPlayer (and removes the old one).
-   * If none of those values changed (e.g. you open another story and play its
-   * episode 1 while episode 1 of the previous story was active, or you replay
-   * the same chapter), the effect did NOT re-run, so the listener stayed on the
-   * old, removed player -> elapsed / duration were never updated again.
-   *
-   * Now the listener is attached right when a player is created, so it always
+   * The listener is attached right when a player is created, so it always
    * follows the CURRENT player.
    */
   const attachAudioStatus = (player: AudioPlayer) => {
@@ -529,6 +580,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const sub = videoPlayer.addListener(
       "statusChange",
       (payload: { status: VideoPlayerStatus; error?: { message: string } }) => {
+        // audio <-> video toggle is running: the toggle handler
+        // sets mode, seeks and plays in the correct order by itself.
+        if (togglingRef.current) {
+          return;
+        }
+
         if (!wantsVideoRef.current) {
           return;
         }
@@ -584,6 +641,13 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   /* =======================================================
      MODE WHEN CHAPTER CHANGES
+
+     `wantsVideo` is NOT a dependency.
+     Before: toggling video -> audio changed `wantsVideo`, this effect
+     instantly set mode = "audio" while the audio player was still at its
+     OLD position, so the stale position was written into redux before the
+     seek happened. Now only a real chapter change runs this effect; the
+     toggle handler sets the mode itself, after the seek.
   ======================================================= */
 
   useEffect(() => {
@@ -598,7 +662,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chapterIndex, chapterHasVideo, chapterHasAudio, wantsVideo]);
+  }, [chapterIndex, chapterHasVideo, chapterHasAudio]);
 
   /* =======================================================
      VIDEO PROGRESS
@@ -644,7 +708,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   /* =======================================================
      AUDIO PROGRESS
-     (now handled by attachAudioStatus, which is attached
+     (handled by attachAudioStatus, which is attached
       whenever an AudioPlayer is created - see above)
   ======================================================= */
 
@@ -742,6 +806,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   /* =======================================================
      TOGGLE VIDEO / AUDIO
+
+     Order (both directions):
+       1. read the REAL position of the player we are leaving
+       2. pause both
+       3. get the other player ready
+       4. seek (while paused) and WAIT until the position is applied
+       5. set mode + elapsed + duration
+       6. only now play (if it was playing)
   ======================================================= */
 
   const handleToggleVideoMode = async () => {
@@ -754,13 +826,35 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
 
     busyRef.current = true;
+    togglingRef.current = true;
 
     try {
       const goingToVideo = !videoEnabledRef.current;
 
       const wasPlaying = isPlayingRef.current;
 
-      const carryOverElapsed = elapsedRef.current;
+      /* REAL position of the player we are leaving
+         (redux `elapsed` can be ~250ms old) */
+
+      let carryOverElapsed = elapsedRef.current;
+
+      try {
+        const real = goingToVideo
+          ? (audioPlayerRef.current as any)?.currentTime
+          : videoPlayer.currentTime;
+
+        if (typeof real === "number" && isFinite(real) && real > 0) {
+          carryOverElapsed = real;
+        }
+      } catch {}
+
+      if (durationRef.current > 0) {
+        carryOverElapsed = clampValue(
+          carryOverElapsed,
+          0,
+          durationRef.current
+        );
+      }
 
       /* STOP CURRENT */
 
@@ -774,6 +868,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
       dispatch(setIsPlaying(false));
 
+      pendingSeekRef.current = null;
+
+      // the toggle handler plays by itself, listener must not
+      autoPlayNextRef.current = false;
+
       dispatch(setVideoEnabled(goingToVideo));
 
       wantsVideoRef.current =
@@ -786,42 +885,46 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       if (goingToVideo) {
         dispatch(setMode("checking"));
 
-        autoPlayNextRef.current = wasPlaying;
-
         try {
           if (!currentChapter?.video_url) {
             throw new Error("Video URL missing");
           }
 
-          await videoPlayer.replaceAsync(currentChapter.video_url);
+          // useVideoPlayer already loaded this URL. Reload only if it
+          // is not usable (saves time + avoids a second readyToPlay).
+          if (
+            videoPlayer.status === "error" ||
+            videoPlayer.status === "idle"
+          ) {
+            await videoPlayer.replaceAsync(currentChapter.video_url);
+          }
 
           await waitForVideoReady(videoPlayer);
 
-          if (videoPlayer.status === "readyToPlay") {
-            dispatch(setMode("video"));
-
-            pendingSeekRef.current = {
-              target: carryOverElapsed,
-              requestedAt: Date.now(),
-            };
-
-            videoPlayer.currentTime = carryOverElapsed;
-
-            dispatch(setElapsed(carryOverElapsed));
-
-            const videoDuration = videoPlayer.duration ?? 0;
-
-            if (videoDuration > 0) {
-              dispatch(setDuration(videoDuration));
-            }
-
-            if (wasPlaying) {
-              videoPlayer.play();
-
-              dispatch(setIsPlaying(true));
-            }
-          } else {
+          if (videoPlayer.status !== "readyToPlay") {
             throw new Error("Video not ready");
+          }
+
+          // seek while PAUSED, wait until the position is really there
+          if (carryOverElapsed > 0) {
+            await seekVideoAndWait(videoPlayer, carryOverElapsed);
+          }
+
+          dispatch(setElapsed(carryOverElapsed));
+
+          const videoDuration = videoPlayer.duration ?? 0;
+
+          if (videoDuration > 0) {
+            dispatch(setDuration(videoDuration));
+          }
+
+          dispatch(setMode("video"));
+
+          // play AFTER the seek is finished -> no stutter
+          if (wasPlaying) {
+            videoPlayer.play();
+
+            dispatch(setIsPlaying(true));
           }
         } catch (error) {
           console.log("Video toggle failed:", error);
@@ -830,15 +933,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
           wantsVideoRef.current = false;
 
-          dispatch(setMode("audio"));
-
           if (chapterHasAudio) {
             try {
               const player = await getReadyAudioPlayer();
 
-              await player.seekTo(carryOverElapsed);
+              await seekAudioAndWait(player, carryOverElapsed);
 
               dispatch(setElapsed(carryOverElapsed));
+
+              dispatch(setMode("audio"));
 
               if (wasPlaying) {
                 player.play();
@@ -847,7 +950,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
               }
             } catch (audioError) {
               console.log("Audio fallback failed:", audioError);
+
+              dispatch(setMode("audio"));
             }
+          } else {
+            dispatch(setMode("audio"));
           }
         }
 
@@ -861,7 +968,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       try {
         const player = await getReadyAudioPlayer();
 
-        await player.seekTo(carryOverElapsed);
+        // mode is still "video" here, so the audio status listener cannot
+        // write the OLD audio position into redux while we seek.
+        await seekAudioAndWait(player, carryOverElapsed);
 
         dispatch(setElapsed(carryOverElapsed));
 
@@ -885,6 +994,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       }
     } finally {
       busyRef.current = false;
+      togglingRef.current = false;
     }
   };
 

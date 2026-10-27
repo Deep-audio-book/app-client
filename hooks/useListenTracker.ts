@@ -1,36 +1,39 @@
 /**
  * useListenTracker  (+ <ListenTracker /> wrapper component)
  *
- * Does 3 things, all from the redux player state (same source the player
- * screen already uses), so it works from ANY screen:
+ * SEND RULES (keeps API cost low):
+ *   - every N seconds while playing (N from backend `getListenConfig`, default 20)
+ *   - on PAUSE
+ *   - when the chapter ENDS
+ *   - when the chapter CHANGES
+ *   - on seek / skip (old run closed, new session starts)
+ *   - on audio <-> video switch (old run closed, new session starts)
+ *   - when the app goes to BACKGROUND / is closed
  *
- *  1. LISTEN SESSION   -> one row in `listen_sessions` per continuous play run
- *  2. HEARTBEAT        -> every 20s while playing + on pause / background /
- *                         chapter change (saves "last pause position")
- *  3. RESUME           -> when a chapter loads, jump to last saved position
+ * SAFETY: listened seconds can never exceed real (wall-clock) play time
+ * x 2.1, so a position jump (resume / bar drag / media switch) can never be
+ * counted as "listened" seconds.
  *
- * BACKEND CONTRACT (same `axios.post("/", { method, ... })` style as the app)
- * -----------------------------------------------------------------------
+ * BACKEND CONTRACT
+ * ----------------
+ * method: "getListenConfig"
+ *   returns data: { heartbeat_sec }            (optional, default 20)
+ *
  * method: "saveListen"
  *   body: client_session_id, story_id, chapter_id, media_type,
  *         start_position_sec, end_position_sec, position_sec,
- *         seconds_listened (CUMULATIVE for this session, not a delta),
- *         duration_sec, completed (bool), platform, started_at, ended_at|null
- *   server: UPSERT listen_sessions by (user_id, client_session_id)
- *           + UPSERT user_chapter_progress by (user_id, story_id, chapter_id)
- *           + decide access_type SERVER SIDE (purchased -> free -> subscription)
- *   Because seconds_listened is cumulative and the row is upserted,
- *   retries / offline sync are safe (no double counting).
+ *         seconds_listened (CUMULATIVE for this session), duration_sec,
+ *         completed, platform, started_at, ended_at|null
+ *   user_id / access_type NOT sent (server decides).
+ *   server: UPSERT by (user_id, client_session_id)
+ *           seconds_listened = GREATEST(old, new)
+ *           ended_at = COALESCE(new, old)
+ *   response (optional): data: { heartbeat_sec }
  *
  * method: "getListenProgress"   body: story_id, chapter_id
- *   returns data: { last_position_sec }   (0 if completed or no row)
+ *   returns data: { last_position_sec, completed }
  *
- * SQL change needed on listen_sessions:
- *   ALTER TABLE listen_sessions
- *     ADD COLUMN client_session_id VARCHAR(40) NOT NULL,
- *     ADD UNIQUE KEY uq_client_session (user_id, client_session_id);
- *
- * MOUNT ONCE inside <PlayerProvider> (e.g. app/_layout.tsx):
+ * MOUNT ONCE inside <PlayerProvider>:
  *   <PlayerProvider>
  *     <ListenTracker />
  *     <Stack />
@@ -47,9 +50,22 @@ import { useSelector } from "react-redux";
 import { usePlayer } from "../providers/PlayerProvider";
 import { RootState } from "../redux/store";
 
-const HEARTBEAT_MS = 20_000;
+const DEBUG = __DEV__ && true;
+const log = (...args: any[]) => {
+  if (DEBUG) console.log(...args);
+};
+
+const DEFAULT_HEARTBEAT_SEC = 20; // used until backend config arrives
+const MIN_HEARTBEAT_SEC = 10;
+const MAX_HEARTBEAT_SEC = 60;
 const QUEUE_KEY = "listen_queue_v1";
-const COMPLETE_AT = 0.95;
+const CONFIG_KEY = "listen_config_v1";
+const COMPLETE_AT = 0.95; // 95% listened = completed
+const COMPLETE_TAIL_SEC = 3; // or last 3 seconds reached = completed
+const CHAPTER_END_SEC = 1; // position within 1s of duration = chapter ended
+const DEAD_TICKS = 3; // elapsed frozen this many ticks while playing -> fallback
+const MAX_SPEED = 2.1; // fastest playback speed (2x) + small tolerance
+const RESUME_WINDOW_MS = 5000; // jump right after resume / media switch is NOT a user seek
 
 type Session = {
   id: string;
@@ -58,10 +74,13 @@ type Session = {
   mediaType: "audio" | "video";
   startedAt: Date;
   startPos: number;
-  seconds: number; // content seconds actually listened (cumulative)
-  lastPos: number; // player position at last tick
+  seconds: number; // content seconds counted as listened (cumulative)
+  playWall: number; // real wall-clock seconds spent in "playing" state
+  lastPos: number; // last REAL player position (redux elapsed)
+  deadSec: number; // seconds counted by wall clock while elapsed was frozen
+  frozenTicks: number; // consecutive ticks where elapsed did not move
   lastWall: number; // Date.now() at last tick
-  lastSent: number; // Date.now() at last heartbeat
+  lastSent: number; // Date.now() at last send attempt
   fresh: boolean; // first tick after start only syncs the position
 };
 
@@ -73,9 +92,17 @@ const makeId = () =>
 const progressKey = (storyId: number | string, chapterId: number | string) =>
   `listen_pos:${storyId}:${chapterId}`;
 
+const clampHeartbeat = (sec: any) => {
+  const n = Number(sec);
+  if (!isFinite(n) || n <= 0) return DEFAULT_HEARTBEAT_SEC;
+  return Math.min(MAX_HEARTBEAT_SEC, Math.max(MIN_HEARTBEAT_SEC, n));
+};
+
 /* ------------------------------------------------------------------ */
 /* Offline queue: keep only the LATEST payload per session id          */
 /* ------------------------------------------------------------------ */
+
+let syncing = false;
 
 async function readQueue(): Promise<Record<string, Payload>> {
   try {
@@ -86,27 +113,57 @@ async function readQueue(): Promise<Record<string, Payload>> {
   }
 }
 
-async function enqueue(payload: Payload) {
-  const q = await readQueue();
-  q[payload.client_session_id] = payload;
+async function writeQueue(q: Record<string, Payload>) {
   await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(q)).catch(() => {});
 }
 
-async function syncQueue() {
+async function enqueue(payload: Payload) {
   const q = await readQueue();
-  const ids = Object.keys(q);
-  if (!ids.length) return;
+  q[payload.client_session_id] = payload;
+  await writeQueue(q);
+  log("[saveListen] QUEUED (offline)", payload.client_session_id);
+}
 
-  for (const id of ids) {
-    try {
-      await axios.post("/", { method: "saveListen", ...q[id] });
-      delete q[id];
-    } catch (e: any) {
-      if (!e?.response) break; // still offline, try later
-      delete q[id]; // server rejected it (4xx) -> don't retry forever
-    }
+async function dequeue(sessionId: string) {
+  const q = await readQueue();
+  if (q[sessionId]) {
+    delete q[sessionId];
+    await writeQueue(q);
   }
-  await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(q)).catch(() => {});
+}
+
+async function syncQueue() {
+  if (syncing) return;
+  syncing = true;
+
+  try {
+    const q = await readQueue();
+    const ids = Object.keys(q);
+    if (!ids.length) return;
+
+    log("[saveListen] SYNC queue, items:", ids.length);
+
+    for (const id of ids) {
+      try {
+        const res = await axios.post("/", { method: "saveListen", ...q[id] });
+        log("[saveListen] SYNC OK", id, res.status, JSON.stringify(res.data));
+        delete q[id];
+      } catch (e: any) {
+        log(
+          "[saveListen] SYNC ERROR",
+          id,
+          e?.response?.status,
+          JSON.stringify(e?.response?.data),
+          e?.message
+        );
+        if (!e?.response) break; // still offline, try later
+        delete q[id]; // server rejected it -> don't retry forever
+      }
+    }
+    await writeQueue(q);
+  } finally {
+    syncing = false;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -124,7 +181,12 @@ export function useListenTracker() {
   const netInfo = useNetInfo();
 
   // always-fresh values for timers / listeners (no stale closures)
-  const live = useRef({ elapsed: 0, duration: 0, isPlaying: false, mode: "audio" as string });
+  const live = useRef({
+    elapsed: 0,
+    duration: 0,
+    isPlaying: false,
+    mode: "audio" as string,
+  });
   live.current = { elapsed, duration, isPlaying, mode };
 
   const chapterRef = useRef<any>(currentChapter);
@@ -132,14 +194,90 @@ export function useListenTracker() {
 
   const session = useRef<Session | null>(null);
 
+  // heartbeat interval (seconds) - comes from the backend
+  const heartbeatSec = useRef<number>(DEFAULT_HEARTBEAT_SEC);
+
+  // until this time, a position jump is a resume / media-switch re-sync
+  // (NOT a user seek)
+  const resumeUntil = useRef(0);
+
+  /* ---------- backend config: heartbeat seconds ---------- */
+
+  const loadConfig = async () => {
+    try {
+      const res = await axios.post("/", { method: "getListenConfig" });
+      const sec = res.data?.data?.heartbeat_sec;
+      if (sec != null) {
+        heartbeatSec.current = clampHeartbeat(sec);
+        AsyncStorage.setItem(CONFIG_KEY, String(heartbeatSec.current)).catch(
+          () => {}
+        );
+      }
+      log("[config] heartbeat_sec =", heartbeatSec.current);
+    } catch {
+      // backend not ready / offline -> last saved value, else default
+      const saved = await AsyncStorage.getItem(CONFIG_KEY).catch(() => null);
+      if (saved) heartbeatSec.current = clampHeartbeat(saved);
+      log("[config] fallback heartbeat_sec =", heartbeatSec.current);
+    }
+  };
+
+  useEffect(() => {
+    loadConfig();
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") loadConfig();
+    });
+    return () => sub.remove();
+  }, []);
+
+  /* ---------- debug ---------- */
+
+  useEffect(() => {
+    log("[tracker] MOUNTED");
+    return () => log("[tracker] UNMOUNTED");
+  }, []);
+
+  useEffect(() => {
+    log(
+      "[tracker] state -> isPlaying:",
+      isPlaying,
+      "| chapterId:",
+      currentChapter?.id,
+      "| storyId:",
+      currentChapter?.storyId,
+      "| mode:",
+      mode
+    );
+  }, [isPlaying, currentChapter?.id, mode]);
+
   /* ---------- build + send ---------- */
 
   const flush = async (ended: boolean) => {
     const s = session.current;
     if (!s) return;
 
+    s.lastSent = Date.now(); // even when skipped -> no 1s retry spam
+
     const dur = live.current.duration || 0;
-    const pos = Math.floor(s.lastPos);
+
+    // listened seconds can never be more than real play time (x2 speed max)
+    const listened = Math.min(s.seconds, s.playWall * MAX_SPEED + 1);
+
+    // real position + frozen-time estimate, capped so a jump can't inflate it
+    const posExact = s.lastPos + s.deadSec;
+    const pos = Math.floor(
+      Math.min(posExact, s.startPos + listened * MAX_SPEED + 1)
+    );
+
+    // nothing was listened -> no junk row
+    if (listened < 1) {
+      log("[saveListen] SKIPPED (listened < 1s)");
+      if (ended) session.current = null;
+      return;
+    }
+
+    const completed =
+      dur > 0 && (pos / dur >= COMPLETE_AT || dur - pos <= COMPLETE_TAIL_SEC);
 
     const payload: Payload = {
       client_session_id: s.id,
@@ -149,31 +287,54 @@ export function useListenTracker() {
       start_position_sec: s.startPos,
       end_position_sec: pos,
       position_sec: pos,
-      seconds_listened: Math.floor(s.seconds),
+      seconds_listened: Math.floor(listened),
       duration_sec: dur ? Math.floor(dur) : null,
-      completed: dur > 0 && s.lastPos / dur >= COMPLETE_AT,
+      completed,
       platform: Platform.OS,
       started_at: s.startedAt.toISOString(),
       ended_at: ended ? new Date().toISOString() : null,
     };
 
-    s.lastSent = Date.now();
     if (ended) session.current = null; // close synchronously
 
     // local copy -> resume works even fully offline
     AsyncStorage.setItem(
       progressKey(s.storyId, s.chapterId),
-      String(payload.completed ? 0 : pos)
+      String(completed ? 0 : pos)
     ).catch(() => {});
 
     try {
-      await axios.post("/", { method: "saveListen", ...payload });
+      log("[saveListen] SEND", JSON.stringify({ method: "saveListen", ...payload }));
+
+      const res = await axios.post("/", { method: "saveListen", ...payload });
+
+      log("[saveListen] RESPONSE", res.status, JSON.stringify(res.data));
+
+      // backend can change the interval on the fly
+      const sec = res.data?.data?.heartbeat_sec;
+      if (sec != null) heartbeatSec.current = clampHeartbeat(sec);
+
+      dequeue(payload.client_session_id);
     } catch (e: any) {
-      if (!e?.response) await enqueue(payload); // network problem -> sync later
+      log(
+        "[saveListen] ERROR",
+        e?.response?.status,
+        JSON.stringify(e?.response?.data),
+        e?.message
+      );
+      if (!e?.response) await enqueue(payload);
     }
   };
 
   const startSession = (ch: any) => {
+    if (!ch || ch.id == null || ch.storyId == null) {
+      log(
+        "[tracker] session NOT started -> chapter has no id/storyId:",
+        JSON.stringify({ id: ch?.id, storyId: ch?.storyId })
+      );
+      return;
+    }
+
     const now = Date.now();
     session.current = {
       id: makeId(),
@@ -183,14 +344,26 @@ export function useListenTracker() {
       startedAt: new Date(),
       startPos: Math.floor(live.current.elapsed),
       seconds: 0,
+      playWall: 0,
       lastPos: live.current.elapsed,
+      deadSec: 0,
+      frozenTicks: 0,
       lastWall: now,
       lastSent: now,
       fresh: true,
     };
+
+    log(
+      "[tracker] session START",
+      session.current.id,
+      "story:",
+      session.current.storyId,
+      "chapter:",
+      session.current.chapterId
+    );
   };
 
-  /* ---------- 1s tick: count REAL listening, ignore seeks/skips ---------- */
+  /* ---------- 1s tick: count listening, detect seek / end / heartbeat ---------- */
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -198,7 +371,7 @@ export function useListenTracker() {
       if (!s) return;
 
       const now = Date.now();
-      const { elapsed: pos, isPlaying: playing } = live.current;
+      const { elapsed: pos, duration: dur, isPlaying: playing } = live.current;
 
       if (s.fresh) {
         // elapsed can still hold the previous chapter's value for a moment
@@ -209,19 +382,85 @@ export function useListenTracker() {
         return;
       }
 
-      const wallSec = (now - s.lastWall) / 1000;
+      // chapter is changing -> the effect below closes this session
+      if (String(chapterRef.current?.id) !== String(s.chapterId)) return;
+
+      const wallSec = Math.min((now - s.lastWall) / 1000, 3);
       const moved = pos - s.lastPos;
-
-      // Natural playback moves at most ~2x real time. A seek / skip (+15, +30,
-      // drag on the bar) jumps far more than that, so it is NOT counted.
-      if (playing && moved > 0 && moved <= wallSec * 2.1 + 1) {
-        s.seconds += moved;
-      }
-
-      s.lastPos = pos;
       s.lastWall = now;
 
-      if (playing && now - s.lastSent >= HEARTBEAT_MS) {
+      if (!playing) {
+        s.lastPos = pos;
+        return;
+      }
+
+      // real time spent in "playing" state (used as a safety cap in flush)
+      s.playWall += wallSec;
+
+      // ---- resume / media switch just seeked: re-sync only, not a user seek ----
+      if (now < resumeUntil.current && Math.abs(moved) > 2) {
+        s.startPos = Math.floor(pos);
+        s.lastPos = pos;
+        s.deadSec = 0;
+        s.frozenTicks = 0;
+        log("[tracker] resume jump ignored, startPos =", s.startPos);
+        return;
+      }
+
+      // ---- elapsed is NOT moving while playing (redux not updating) ----
+      if (Math.abs(moved) < 0.01) {
+        s.frozenTicks += 1;
+
+        if (s.frozenTicks >= DEAD_TICKS) {
+          // fallback: count by wall clock
+          s.seconds += wallSec;
+          s.deadSec += wallSec;
+        }
+      } else {
+        // elapsed moved
+        if (s.deadSec > 0) {
+          // it was frozen before and just woke up -> re-sync, don't treat as seek
+          log("[tracker] elapsed alive again");
+          s.deadSec = 0;
+          s.frozenTicks = 0;
+          s.lastPos = pos;
+          return;
+        }
+
+        s.frozenTicks = 0;
+
+        // Natural playback moves forward at most ~2x real time. Anything else
+        // (bar drag, +15 / +30 skip, back skip) is a SEEK.
+        const jumped = moved < -1 || moved > wallSec * MAX_SPEED + 1;
+
+        if (jumped) {
+          log("[tracker] seek detected, moved:", moved.toFixed(1), "s");
+          flush(true);
+          startSession(chapterRef.current);
+          return;
+        }
+
+        if (moved > 0) s.seconds += moved;
+        s.lastPos = pos;
+      }
+
+      // CHAPTER ENDED -> send now and close the session
+      if (dur > 0 && s.lastPos + s.deadSec >= dur - CHAPTER_END_SEC) {
+        log("[tracker] chapter ENDED");
+        flush(true);
+        return;
+      }
+
+      // HEARTBEAT every N seconds (N from backend)
+      if (now - s.lastSent >= heartbeatSec.current * 1000) {
+        log(
+          "[tracker] heartbeat, seconds so far:",
+          Math.floor(s.seconds),
+          "| playWall:",
+          Math.floor(s.playWall),
+          "| deadSec:",
+          Math.floor(s.deadSec)
+        );
         flush(false);
       }
     }, 1000);
@@ -235,20 +474,40 @@ export function useListenTracker() {
     const ch = chapterRef.current;
     const open = session.current;
 
-    // paused, or the chapter changed -> close the running session
+    // PAUSE, or CHAPTER CHANGED -> send now and close the session
     if (open && (!isPlaying || String(open.chapterId) !== String(ch?.id))) {
+      log("[tracker] session END (pause / chapter change)", open.id);
       flush(true);
     }
 
-    if (isPlaying && ch?.id != null && ch?.storyId != null && !session.current) {
+    if (isPlaying && !session.current) {
       startSession(ch);
     }
   }, [isPlaying, currentChapter?.id]);
 
-  /* ---------- background / app close: save right now ---------- */
+  /* ---------- audio <-> video switch -> new session ---------- */
+
+  useEffect(() => {
+    const open = session.current;
+    if (!open) return;
+
+    const nextType = mode === "video" ? "video" : "audio";
+    if (mode !== "checking" && open.mediaType !== nextType) {
+      log("[tracker] media type switched ->", nextType);
+      flush(true);
+
+      // position re-sync after the switch is NOT a user seek
+      resumeUntil.current = Date.now() + RESUME_WINDOW_MS;
+
+      if (live.current.isPlaying) startSession(chapterRef.current);
+    }
+  }, [mode]);
+
+  /* ---------- BACKGROUND / app close: send right now ---------- */
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
+      log("[tracker] AppState ->", state);
       if (state !== "active") flush(false);
     });
     return () => {
@@ -281,8 +540,15 @@ export function useListenTracker() {
           story_id: Number(ch.storyId),
           chapter_id: Number(ch.id),
         });
+        log("[resume] RESPONSE", res.status, JSON.stringify(res.data));
         pos = Number(res.data?.data?.last_position_sec ?? 0);
-      } catch {
+      } catch (e: any) {
+        log(
+          "[resume] ERROR",
+          e?.response?.status,
+          JSON.stringify(e?.response?.data),
+          e?.message
+        );
         const saved = await AsyncStorage.getItem(progressKey(ch.storyId, ch.id));
         pos = Number(saved ?? 0);
       }
@@ -293,7 +559,15 @@ export function useListenTracker() {
       const nearEnd = dur > 0 && pos >= dur - 10;
 
       // only if user hasn't already moved the slider
-      if (pos > 5 && now < 3 && !nearEnd) seekToTime(pos);
+      if (pos > 5 && now < 3 && !nearEnd) {
+        log("[resume] seeking to", pos);
+
+        // the jump that follows is NOT a user seek -> re-sync the session
+        resumeUntil.current = Date.now() + RESUME_WINDOW_MS;
+        if (session.current) session.current.fresh = true;
+
+        seekToTime(pos);
+      }
     })();
 
     return () => {

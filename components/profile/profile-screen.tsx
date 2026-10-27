@@ -1,5 +1,3 @@
-import { getDownloadedStorySummaries } from "../download/downloadService";
-import { useDownloadStore, waitForHydration } from '../download/downloadStore';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -15,11 +13,22 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { logoutUser } from '../../redux/slices/authReducer';
 import { useAppDispatch, useAppSelector } from '../../utils/typedReduxHooks';
+import { getDownloadedStorySummaries } from "../download/downloadService";
+import { useDownloadStore, waitForHydration } from '../download/downloadStore';
+import { selectCount, useCartStore } from './cartStore';
+import {
+  APP_VERSION,
+  AboutSheet,
+  Badge,
+  CartSheet,
+  ContactSheet,
+  EditProfileSheet,
+  x,
+} from './ProfileExtras';
 import styles, {
   BASE_WIDTH,
   COLORS,
   MAX_CONTENT_WIDTH,
-  MIN_TOUCH_TARGET,
 } from './style';
 
 function clampValue(value: number, min: number, max: number) {
@@ -36,12 +45,13 @@ function initialsFor(name?: string) {
   return (first + last).toUpperCase() || '?';
 }
 
-/* ---------- one flat list row: icon, label, value/chevron ---------- */
+/* ---------- one flat list row: icon, label, value/badge/chevron ---------- */
 
 function Row({
   icon,
   label,
   value,
+  badge,
   onPress,
   tone = 'default',
   showChevron = true,
@@ -49,6 +59,7 @@ function Row({
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value?: string;
+  badge?: number;
   onPress?: () => void;
   tone?: 'default' | 'danger';
   showChevron?: boolean;
@@ -70,6 +81,8 @@ function Row({
       <Text style={[styles.rowLabel, { color }]} numberOfLines={1}>
         {label}
       </Text>
+
+      {badge ? <Badge value={badge} /> : null}
 
       {value ? (
         <Text style={styles.rowValue} numberOfLines={1}>
@@ -102,8 +115,16 @@ export default function ProfileScreen() {
   const scale = clampValue(contentWidth / BASE_WIDTH, 0.85, 1.25);
   const avatarSize = Math.round(clampValue(96 * scale, 84, 112));
 
-  // Real downloaded-episode count for the "Downloads" row, so it's
-  // never a placeholder number.
+  // sheets
+  const [cartOpen, setCartOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [contactOpen, setContactOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+
+  const cartCount = useCartStore(selectCount);
+  const clearCart = useCartStore((s) => s.clear);
+
+  // Real downloaded-episode count for the "Downloads" row
   const [downloadedEpisodes, setDownloadedEpisodes] = useState(0);
   const downloadSig = useDownloadStore((s) =>
     Object.values(s.files)
@@ -121,31 +142,14 @@ export default function ProfileScreen() {
     });
   }, [downloadSig]);
 
-  // BUG FIX #1: this used to just do router.replace('/') without clearing
-  // the session. Redux + AsyncStorage still had the user, so app/index.tsx
-  // saw a logged-in user and sent them straight back to /home.
-  //
-  // BUG FIX #2/#3: Profile is presented as a MODAL over the (tabs) group.
-  // router.replace('/sign-in') alone only swaps the modal's own route -
-  // (tabs)/Home underneath stays in the stack and reappears once the
-  // modal finishes closing.
-  //
-  // BUG FIX #4: calling dismissAll() then replace() as two separate
-  // steps raced - dismissAll() dispatches a POP_TO_TOP action, but by
-  // the time it's processed, replace() had already changed the
-  // navigator state, so the pop had nowhere to land ("The action
-  // 'POP_TO_TOP' was not handled by any navigator" dev warning).
-  // dismissTo() dismisses the modal AND navigates to the target route
-  // as one atomic action - built for exactly this "close modal, go
-  // somewhere else" case - so there's no race.
+  // Logout: clear session, then dismiss the modal AND go to /sign-in atomically.
   const handleLogout = async () => {
     await dispatch(logoutUser());
+    clearCart();
 
     if (typeof (router as any).dismissTo === 'function') {
       (router as any).dismissTo('/sign-in');
     } else {
-      // Older expo-router without dismissTo - fall back to the two-step
-      // version, safely guarded.
       try {
         router.dismissAll();
       } catch {
@@ -153,6 +157,20 @@ export default function ProfileScreen() {
       }
       router.replace('/sign-in');
     }
+  };
+
+  const handleCheckout = () => {
+    setCartOpen(false);
+    router.push('/checkout' as any); // create this route for address + payment
+  };
+
+  // Called when the user taps "Save changes" in the edit sheet.
+  // Throw an error here if the API fails - the sheet shows the error message.
+  const handleSaveProfile = async ({ username }: { username: string }) => {
+    // TODO: 1) call your update-profile API
+    //       2) update redux so the new name shows everywhere, e.g.
+    //          await dispatch(updateProfile({ username })).unwrap();
+    void username;
   };
 
   return (
@@ -222,6 +240,15 @@ export default function ProfileScreen() {
               {user.email}
             </Text>
           )}
+          <Pressable
+            onPress={() => setEditOpen(true)}
+            style={({ pressed }) => [x.editBtn, pressed && { opacity: 0.7 }]}
+            accessibilityRole="button"
+            accessibilityLabel={t('profile.editProfile', 'Edit profile')}
+          >
+            <Ionicons name="create-outline" size={16} color={COLORS.gold} />
+            <Text style={x.editBtnText}>{t('profile.editProfile', 'Edit profile')}</Text>
+          </Pressable>
         </View>
 
         {/* ---------- listening ---------- */}
@@ -239,6 +266,23 @@ export default function ProfileScreen() {
           />
         </View>
 
+        {/* ---------- shop ---------- */}
+        <SectionLabel>{t('profile.shopSection', 'Shop')}</SectionLabel>
+        <View style={styles.group}>
+          <Row
+            icon="cart-outline"
+            label={t('profile.myCart', 'My cart')}
+            badge={cartCount}
+            onPress={() => setCartOpen(true)}
+          />
+          <View style={styles.rowDivider} />
+          <Row
+            icon="receipt-outline"
+            label={t('profile.myOrders', 'My orders')}
+            onPress={() => router.push('/orders' as any)}
+          />
+        </View>
+
         {/* ---------- membership ---------- */}
         <SectionLabel>{t('profile.membershipSection')}</SectionLabel>
         <View style={styles.group}>
@@ -250,8 +294,44 @@ export default function ProfileScreen() {
           />
           <View style={styles.rowDivider} />
           <Row icon="refresh-outline" label={t('profile.restorePurchases')} onPress={() => {}} />
+        </View>
+
+        {/* ---------- support ---------- */}
+        <SectionLabel>{t('profile.supportSection', 'Help & support')}</SectionLabel>
+        <View style={styles.group}>
+          <Row
+            icon="help-circle-outline"
+            label={t('profile.helpCenter', 'Help center')}
+            onPress={() => router.push('/help' as any)}
+          />
           <View style={styles.rowDivider} />
-          <Row icon="pricetag-outline" label={t('profile.enterPromoCode')} onPress={() => {}} />
+          <Row
+            icon="chatbubble-ellipses-outline"
+            label={t('profile.contactUs', 'Contact us')}
+            onPress={() => setContactOpen(true)}
+          />
+        </View>
+
+        {/* ---------- about ---------- */}
+        <SectionLabel>{t('profile.aboutSection', 'About')}</SectionLabel>
+        <View style={styles.group}>
+          <Row
+            icon="information-circle-outline"
+            label={t('profile.aboutUs', 'About us')}
+            onPress={() => setAboutOpen(true)}
+          />
+          <View style={styles.rowDivider} />
+          <Row
+            icon="document-text-outline"
+            label={t('profile.terms', 'Terms of service')}
+            onPress={() => router.push('/terms' as any)}
+          />
+          <View style={styles.rowDivider} />
+          <Row
+            icon="shield-checkmark-outline"
+            label={t('profile.privacy', 'Privacy policy')}
+            onPress={() => router.push('/privacy' as any)}
+          />
         </View>
 
         {/* ---------- sign out ---------- */}
@@ -264,7 +344,38 @@ export default function ProfileScreen() {
             showChevron={false}
           />
         </View>
+
+        <Text style={x.footerText}>
+          {t('profile.version', 'Version')} {APP_VERSION}
+        </Text>
       </ScrollView>
+
+      {/* sheets */}
+      <EditProfileSheet
+        visible={editOpen}
+        onClose={() => setEditOpen(false)}
+        initialName={user?.username ?? ''}
+        email={user?.email}
+        onSave={handleSaveProfile}
+      />
+      <CartSheet
+        visible={cartOpen}
+        onClose={() => setCartOpen(false)}
+        onCheckout={handleCheckout}
+      />
+      <ContactSheet visible={contactOpen} onClose={() => setContactOpen(false)} />
+      <AboutSheet
+        visible={aboutOpen}
+        onClose={() => setAboutOpen(false)}
+        onTerms={() => {
+          setAboutOpen(false);
+          router.push('/terms' as any);
+        }}
+        onPrivacy={() => {
+          setAboutOpen(false);
+          router.push('/privacy' as any);
+        }}
+      />
     </View>
   );
 }

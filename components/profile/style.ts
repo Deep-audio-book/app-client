@@ -9,6 +9,7 @@ export const MIN_TOUCH_TARGET = 44;
 // Same family the rest of the app uses (AlbumScreen's COLORS, the gold
 // tab-bar accent) so Profile doesn't feel like a different app.
 export const COLORS = {
+  bg: '#0B0908',
   bgDeep: '#0B0908',
   glowTop: 'rgba(214,135,93,0.35)',
   gold: '#D9A441',
