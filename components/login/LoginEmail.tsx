@@ -1,5 +1,5 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from "expo-router";
+import { Redirect, usePathname, useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,18 +16,23 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import axios from '../../axios.config';
 import { loginUser } from '../../redux/slices/authReducer';
-import { useAppDispatch } from '../../utils/typedReduxHooks';
+import { useAppDispatch, useAppSelector } from '../../utils/typedReduxHooks';
 import styles from './style';
 
-
 export function SignInScreen() {
+  // ---- ALL hooks must be called before any early return ----
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('Team'); // unga flow padi vachikonga
   const [errorMsg, setErrorMsg] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
   const dispatch = useAppDispatch();
+  const { user, isLoading } = useAppSelector((s) => s.auth);
+
+  // Debug: Android la index skip aagi direct sign-in open aagudha nu confirm panna
+  // console.log('[SIGNIN] opened, pathname =', pathname, '| isLoading =', isLoading, '| user =', user);
 
   const handleSignIn = async () => {
     setErrorMsg('');
@@ -52,24 +57,26 @@ export function SignInScreen() {
       );
 
       if (data.statusCode === 200) {
-        // username & email Redux + AsyncStorage 
-        await dispatch(loginUser({
-          username: data.data.firstName,
-          email: data.data.email,
-          userId: data.data.userId,
-        }));
+        // username & email Redux + AsyncStorage
+        await dispatch(
+          loginUser({
+            username: data.data.firstName,
+            email: data.data.email,
+            userId: data.data.userId,
+          })
+        );
 
-        // success only 
-        router.push("/home");
+        // replace so Back doesn't return to the sign-in screen
+        router.replace('/home');
       } else {
         // 401, 404 etc - error
         setErrorMsg(data.msg || 'Login failed. Please try again.');
       }
     } catch (error: any) {
-      console.log("Error code:", error.code);
-      console.log("Error message:", error.message);
-      console.log("Error response:", error.response);
-      console.log("Error request:", error.request);
+      console.log('Error code:', error.code);
+      console.log('Error message:', error.message);
+      console.log('Error response:', error.response);
+      console.log('Error request:', error.request);
 
       if (error.code === 'ECONNABORTED') {
         setErrorMsg('Request timed out. Please check your connection and try again.');
@@ -80,6 +87,28 @@ export function SignInScreen() {
       setLoading(false);
     }
   };
+
+  // ---- Auth guard ----
+  // Saved login restore aagura varaikum spinner kaattu
+  if (isLoading) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: '#000000',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <ActivityIndicator size="large" color="#FFFFFF" />
+      </View>
+    );
+  }
+
+  // Already logged in na sign-in screen kaattaama home ku anuppu
+  if (user) {
+    return <Redirect href="/home" />;
+  }
 
   return (
     <View style={styles.container}>
@@ -94,13 +123,14 @@ export function SignInScreen() {
       <SafeAreaView style={styles.flex} edges={['top', 'bottom']}>
         <KeyboardAvoidingView
           style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
-            bounces={false}>
-
+            bounces={false}
+          >
             <View style={styles.spacer} />
 
             <View style={styles.form}>
@@ -172,7 +202,8 @@ export function SignInScreen() {
                   styles.forgotButton,
                   pressed && styles.pressed,
                 ]}
-                hitSlop={8}>
+                hitSlop={8}
+              >
                 <Text style={styles.forgotText}>
                   Forgot your login or password?
                 </Text>
@@ -181,20 +212,20 @@ export function SignInScreen() {
 
             <View style={styles.footer}>
               <Pressable
+                onPress={() => router.push('/sign-up')}
+                disabled={loading}
                 style={({ pressed }) => [
                   styles.createAccountButton,
                   pressed && styles.pressed,
-                ]}>
-                <Text style={styles.createAccountText}>
-                  Create account
-                </Text>
+                ]}
+              >
+                <Text style={styles.createAccountText}>Create account</Text>
               </Pressable>
 
               <Text style={styles.priceText}>
                 {/* Free for 3 months, then $12 a month */}
               </Text>
             </View>
-
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>

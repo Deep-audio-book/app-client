@@ -14,28 +14,46 @@ type AuthState = {
 
 const initialState: AuthState = {
   user: null,
-  isLoading: true,
+  isLoading: true, // app open aagumbodhu restore mudiyara varaikum true
 };
 
 const STORAGE_KEY = '@audiobooks_user_data';
 
-// App open time check if user data is present in async storage or not, if present then set the user data in state
-export const loadUser = createAsyncThunk('auth/loadUser', async () => {
-  const storedUser = await AsyncStorage.getItem(STORAGE_KEY);
-  return storedUser ? JSON.parse(storedUser) : null;
-});
+// App open time: async storage la user data irukka nu paathu, irundha state la set pannum
+export const loadUser = createAsyncThunk<UserData | null>(
+  'auth/loadUser',
+  async () => {
+    const storedUser = await AsyncStorage.getItem(STORAGE_KEY);
+  //  console.log('[AUTH] loadUser storage =', storedUser);
 
-// when login that time store user data in async storage and return the user data
-export const loginUser = createAsyncThunk(
-  'auth/loginUser',
-  async (userData: UserData) => {
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
-    return userData;
+    if (!storedUser) return null;
+
+    try {
+      return JSON.parse(storedUser) as UserData;
+    } catch {
+      // Corrupt data na clear pannidu
+      await AsyncStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
   }
 );
 
-// Logout
+// Login: user data async storage la save panni return pannum
+export const loginUser = createAsyncThunk(
+  'auth/loginUser',
+  async (userData: UserData) => {
+      // console.log('[AUTH] user saved');
+
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
+    return userData;
+  }
+  
+);
+
+// Logout: storage la irundhu remove pannum
 export const logoutUser = createAsyncThunk('auth/logoutUser', async () => {
+  // console.log('[AUTH] logoutUser called');
+
   await AsyncStorage.removeItem(STORAGE_KEY);
 });
 
@@ -45,15 +63,40 @@ const authReducer = createSlice({
   reducers: {},
   extraReducers: (builder) => {
     builder
-      .addCase(loadUser.fulfilled, (state, action: PayloadAction<UserData | null>) => {
-        state.user = action.payload;
+      // loadUser
+      .addCase(loadUser.pending, (state) => {
+        state.isLoading = true;
+      })
+      .addCase(
+        loadUser.fulfilled,
+        (state, action: PayloadAction<UserData | null>) => {
+          state.user = action.payload;
+          state.isLoading = false;
+        }
+      )
+      .addCase(loadUser.rejected, (state) => {
+        // Error vandhaalum isLoading false aaganum, illana spinner la stuck aagidum
         state.isLoading = false;
       })
-      .addCase(loginUser.fulfilled, (state, action: PayloadAction<UserData>) => {
-        state.user = action.payload;
-      })
+
+      // loginUser
+      .addCase(
+        loginUser.fulfilled,
+        (state, action: PayloadAction<UserData>) => {
+          state.user = action.payload;
+          state.isLoading = false;
+        }
+      )
+
+      // logoutUser
       .addCase(logoutUser.fulfilled, (state) => {
         state.user = null;
+        state.isLoading = false;
+      })
+      .addCase(logoutUser.rejected, (state) => {
+        // Storage remove fail aanaalum user ah logout pannidu
+        state.user = null;
+        state.isLoading = false;
       });
   },
 });

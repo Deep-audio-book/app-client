@@ -3,7 +3,7 @@ import WishlistHeart from "@/components/ui/WishlistHeart";
 import { storyWishlisted, useWishlistStore } from "@/redux/slices/wishlistStore";
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from "expo-linear-gradient";
-import { router, useRouter } from "expo-router";
+import { router, useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -22,8 +22,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Path, Rect, SvgUri } from "react-native-svg";
-import styles, { BED_COVERS, CARD_H, CARD_RADIUS, CARD_W, COLORS, COVERS } from "./style";
 import ProfileDot from '../ui/ProfileDot';
+import styles, { BED_COVERS, CARD_H, CARD_RADIUS, CARD_W, COLORS, COVERS } from "./style";
 
 /* ---------- API types ---------- */
 
@@ -1189,7 +1189,43 @@ function renderSection(section: Section, index: number, experience: HomeExperien
   }
 }
 
-/* ---------- home experience switch (non-subscribers only) ---------- */
+/* ---------- home experience switch (non-subscribers only) ----------
+ * Spotify-style filter chips: two separate pills, the selected one is filled
+ * with the brand colour, with a small icon, press-scale animation and haptic.
+ */
+
+const ModeChip: React.FC<{
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  icon: (color: string) => React.ReactNode;
+}> = ({ label, active, onPress, icon }) => {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const pressIn = () =>
+    Animated.spring(scale, { toValue: 0.95, useNativeDriver: true, speed: 40, bounciness: 0 }).start();
+  const pressOut = () =>
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 40, bounciness: 6 }).start();
+
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Pressable
+        onPress={onPress}
+        onPressIn={pressIn}
+        onPressOut={pressOut}
+        style={[styles.modeChip, active && styles.modeChipActive]}
+        accessibilityRole="button"
+        accessibilityState={{ selected: active }}
+        accessibilityLabel={label}
+      >
+        {icon(active ? "#241b2c" : COLORS.text2)}
+        <Text style={[styles.modeChipText, active && styles.modeChipTextActive]} numberOfLines={1}>
+          {label}
+        </Text>
+      </Pressable>
+    </Animated.View>
+  );
+};
 
 const HomeExperienceSwitch: React.FC<{
   value: HomeExperience;
@@ -1197,29 +1233,26 @@ const HomeExperienceSwitch: React.FC<{
 }> = ({ value, onChange }) => {
   const { t } = useTranslation();
 
+  const select = (next: HomeExperience) => {
+    if (next === value) return;
+    Haptics.selectionAsync();
+    onChange(next);
+  };
+
   return (
     <View style={styles.modeSwitch}>
-      <TouchableOpacity
-        style={[styles.modeTab, value === "buy" && styles.modeTabActive]}
-        activeOpacity={0.85}
-        onPress={() => onChange("buy")}
-        accessibilityRole="button"
-        accessibilityLabel={t("home.modeBuy")}
-      >
-        <Text style={[styles.modeTabText, value === "buy" && styles.modeTabTextActive]}>{t("home.modeBuy")}</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={[styles.modeTab, value === "unlimited" && styles.modeTabActive]}
-        activeOpacity={0.85}
-        onPress={() => onChange("unlimited")}
-        accessibilityRole="button"
-        accessibilityLabel={t("home.modeUnlimited")}
-      >
-        <Text style={[styles.modeTabText, value === "unlimited" && styles.modeTabTextActive]}>
-          {t("home.modeUnlimited")}
-        </Text>
-      </TouchableOpacity>
+      <ModeChip
+        label={t("home.modeBuy")}
+        active={value === "buy"}
+        onPress={() => select("buy")}
+        icon={(c) => <ShoppingCartIcon size={15} color={c} />}
+      />
+      <ModeChip
+        label={t("home.modeUnlimited")}
+        active={value === "unlimited"}
+        onPress={() => select("unlimited")}
+        icon={(c) => <CrownIcon size={15} color={c} />}
+      />
     </View>
   );
 };
@@ -1231,24 +1264,31 @@ const SubscribeBanner: React.FC = () => {
 
   return (
     <TouchableOpacity
-      style={styles.subscribeBanner}
       activeOpacity={0.9}
       onPress={goToSubscribe}
       accessibilityRole="button"
       accessibilityLabel={t("home.subscribeNow")}
+      style={{ marginBottom: 14 }}
     >
-      <View style={styles.subscribeBannerIconWrap}>
-        <CrownIcon size={16} color={COLORS.lav} />
-      </View>
+      <LinearGradient
+        colors={["rgba(183,155,209,0.30)", "rgba(46,99,91,0.30)"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.subscribeBanner}
+      >
+        <View style={styles.subscribeBannerIconWrap}>
+          <CrownIcon size={18} color={COLORS.lav} />
+        </View>
 
-      <View style={{ flex: 1 }}>
-        <Text style={styles.subscribeBannerTitle}>{t("home.unlimitedBannerTitle")}</Text>
-        <Text style={styles.subscribeBannerSubtitle}>{t("home.unlimitedBannerSubtitle")}</Text>
-      </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.subscribeBannerTitle}>{t("home.unlimitedBannerTitle")}</Text>
+          <Text style={styles.subscribeBannerSubtitle}>{t("home.unlimitedBannerSubtitle")}</Text>
+        </View>
 
-      <View style={styles.subscribeBtn}>
-        <Text style={styles.subscribeBtnText}>{t("home.subscribeNow")}</Text>
-      </View>
+        <View style={styles.subscribeBtn}>
+          <Text style={styles.subscribeBtnText}>{t("home.subscribeNow")}</Text>
+        </View>
+      </LinearGradient>
     </TouchableOpacity>
   );
 };
@@ -1269,27 +1309,33 @@ const DeepAudiobooksHome: React.FC = () => {
   // true = active subscriber. false = new user OR expired plan.
   const [isSubscribed, setIsSubscribed] = useState(false);
   const isSubscribedRef = useRef(false);
+  // Ignore responses from older requests (e.g. user taps Buy/Unlimited quickly).
+  const requestIdRef = useRef(0);
 
   // Subscribers always get the unlimited experience; the Buy option is gone.
   const activeExperience: HomeExperience = isSubscribed ? "unlimited" : experience;
 
   const fetchDiscoverData = useCallback(
-    async (isPullRefresh = false) => {
+    async (isPullRefresh = false, silent = false) => {
+      const reqId = ++requestIdRef.current;
+
       try {
         if (isPullRefresh) {
           setRefreshing(true);
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        } else {
+        } else if (!silent) {
           setLoading(true);
         }
 
-        setError(null);
+        if (!silent) setError(null);
 
         const { data } = await axios.post("/", {
           method: "getHomepageData",
           // Hint for the backend (it should also decide from the auth token).
           home_type: isSubscribedRef.current ? "unlimited" : experience,
         });
+
+        if (reqId !== requestIdRef.current) return; // a newer request is in flight
 
         if (data.statusCode === 200) {
           const list: Section[] = data.data ?? [];
@@ -1302,7 +1348,7 @@ const DeepAudiobooksHome: React.FC = () => {
           const sub = !!(data.is_subscribed ?? data.subscription?.is_active ?? false);
           isSubscribedRef.current = sub;
           setIsSubscribed(sub);
-        } else {
+        } else if (!silent) {
           setError(data.msg || t("home.failedToLoad"));
         }
       } catch (err: any) {
@@ -1310,10 +1356,13 @@ const DeepAudiobooksHome: React.FC = () => {
         console.log("Error message:", err.message);
         console.log("Error response:", err.response);
 
-        setError(t("home.somethingWentWrong"));
+        // Silent background refreshes never replace the screen with an error.
+        if (reqId === requestIdRef.current && !silent) setError(t("home.somethingWentWrong"));
       } finally {
-        setLoading(false);
-        setRefreshing(false);
+        if (reqId === requestIdRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
     },
     [t, experience]
@@ -1327,6 +1376,23 @@ const DeepAudiobooksHome: React.FC = () => {
     fetchDiscoverData();
     // Re-fetch when the chosen experience (Buy / Unlimited) changes.
   }, [fetchDiscoverData]);
+
+  // Quietly refresh when the screen regains focus (e.g. after subscribing or
+  // buying a book elsewhere), so Buy/Unlimited reflects the latest plan.
+  // A ref keeps this from also firing whenever the Buy/Unlimited tab changes.
+  const fetchRef = useRef(fetchDiscoverData);
+  fetchRef.current = fetchDiscoverData;
+  const hasFocusedOnce = useRef(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!hasFocusedOnce.current) {
+        hasFocusedOnce.current = true; // first focus is covered by the mount fetch
+        return;
+      }
+      fetchRef.current(false, true);
+    }, [])
+  );
 
   const greetingSection = sections.find(
     (s): s is Extract<Section, { type: "greeting" }> => s.type === "greeting"

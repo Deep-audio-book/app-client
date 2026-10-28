@@ -60,7 +60,8 @@ import styles, {
   MINI_PLAYER_HEIGHT,
 } from "./episodeStyle";
 
-type TabKey = "about" | "chapters" | "bookmarks";
+// Bookmarks tab removed
+type TabKey = "about" | "chapters";
 
 // Shape of one item in the "Recommended" list coming from the backend
 type RecommendedStory = {
@@ -84,7 +85,7 @@ type CartItem = {
 // TODO: put the route path of THIS screen here (the file name of this screen
 // inside your expo-router `app/` folder), so tapping a recommended story
 // opens its own page.
-const ALBUM_ROUTE = "/album";
+const ALBUM_ROUTE = "/storyEpisode";
 
 // TODO: your checkout / cart screen route (used by the "Checkout" button)
 const CART_ROUTE = "/cart";
@@ -866,7 +867,6 @@ function RecommendedSection({
 const TABS: { key: TabKey; labelKey: string }[] = [
   { key: "about", labelKey: "album.tabs.about" },
   { key: "chapters", labelKey: "album.tabs.chapters" },
-  { key: "bookmarks", labelKey: "album.tabs.bookmarks" },
 ];
 
 function Tabs({
@@ -1047,9 +1047,9 @@ export default function AlbumScreen() {
   }, []);
 
   // Runs on first open AND every time this screen comes back into focus
-  // (e.g. after closing the player, finishing a purchase, or changing the
-  // language), so story, lock state and recommendations are always fresh.
-  // First load shows the spinner; later refetches are silent.
+  // (e.g. after closing the player, finishing a purchase, subscribing, or
+  // changing the language), so story, lock state and recommendations are
+  // always fresh. First load shows the spinner; later refetches are silent.
   useFocusRefetch(async () => {
     if (!storyId) return;
 
@@ -1188,16 +1188,32 @@ export default function AlbumScreen() {
       ) {
         const story: StoryDetail = response.data.data;
 
+        // The backend puts the user-specific flags at the TOP LEVEL of the
+        // response (next to `data`), e.g.
+        //   { is_subscribed, subscription: { is_active, expiry_date },
+        //     is_rented,     rental:       { is_active, expiry_date }, data: {...} }
+        // so read them from there first, then fall back to `data.*`.
+        const root: any = response.data;
+        const detail0: any = story;
+        const flag = (...values: unknown[]) => {
+          const found = values.find((v) => v !== undefined && v !== null);
+          return Boolean(found);
+        };
+
         setStoryDetail(story);
-        setPurchased(Boolean(story.is_purchased));
-        // Backend: is_rented (this book rented) + is_subscribed (active unlimited plan)
-        setRented(Boolean((story as any).is_rented));
-        setIsSubscribed(Boolean((story as any).is_subscribed));
+        setPurchased(
+          flag(detail0.is_purchased, root.is_purchased, root.purchase?.is_active)
+        );
+        // is_subscribed must be false for new users AND users whose plan expired.
+        setRented(flag(root.is_rented, root.rental?.is_active, detail0.is_rented));
+        setIsSubscribed(
+          flag(root.is_subscribed, root.subscription?.is_active, detail0.is_subscribed)
+        );
         setFromCache(false);
 
         // Cart: total items in cart + is THIS story already in the cart
-        setCartCount(Number((story as any).cart_count ?? 0));
-        setCartState((story as any).in_cart ? "added" : "idle");
+        setCartCount(Number(root.cart_count ?? detail0.cart_count ?? 0));
+        setCartState(flag(root.in_cart, detail0.in_cart) ? "added" : "idle");
 
         // Backend `like` anuppina, global wishlist store la seed panrom
         // (store la already value irundha overwrite aagadhu)
@@ -1307,7 +1323,8 @@ export default function AlbumScreen() {
   // -------------------------------------------------------
 
   const handleAddToCart = async () => {
-    if (!storyDetail || cartState === "loading" || purchased) return;
+    // Active subscribers never buy individual books (everything is unlocked)
+    if (!storyDetail || cartState === "loading" || purchased || isSubscribed) return;
 
     try {
       setCartState("loading");
@@ -1624,8 +1641,10 @@ export default function AlbumScreen() {
   // "One-time purchase" banner (only while still locked)
   const showPurchaseCard = hasPaidContent && !hasAccess && !isOfflineMode;
 
-  // Purchase options card (buy / listen this book only / unlimited)
-  const showPurchaseOptions = hasPaidContent && !isOfflineMode;
+  // Purchase options card (buy / listen this book only / unlimited).
+  //   new user / expired plan -> shown
+  //   active subscriber       -> hidden (nothing to buy)
+  const showPurchaseOptions = hasPaidContent && !isOfflineMode && !isSubscribed;
 
   const rentalPrice =
     Number(
@@ -1812,30 +1831,32 @@ export default function AlbumScreen() {
             )}
           </Pressable>
 
-          {/* Cart (replaces the old 3-dot button): count badge, tap = list */}
-          <Pressable
-            hitSlop={8}
-            onPress={handleCartPress}
-            style={({ pressed }) => [
-              localStyles.iconButton,
-              pressed && { opacity: 0.6 },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={t("album.cart.open", "Open cart")}
-          >
-            <Ionicons
-              name={cartCount > 0 ? "cart" : "cart-outline"}
-              size={23}
-              color={cartState === "added" ? COLORS.gold : COLORS.cream}
-            />
-            {cartCount > 0 && (
-              <View style={localStyles.cartBadge}>
-                <Text style={localStyles.cartBadgeText}>
-                  {cartCount > 99 ? "99+" : cartCount}
-                </Text>
-              </View>
-            )}
-          </Pressable>
+          {/* Cart: hidden for active subscribers (they never buy single books) */}
+          {!isSubscribed && (
+            <Pressable
+              hitSlop={8}
+              onPress={handleCartPress}
+              style={({ pressed }) => [
+                localStyles.iconButton,
+                pressed && { opacity: 0.6 },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={t("album.cart.open", "Open cart")}
+            >
+              <Ionicons
+                name={cartCount > 0 ? "cart" : "cart-outline"}
+                size={23}
+                color={cartState === "added" ? COLORS.gold : COLORS.cream}
+              />
+              {cartCount > 0 && (
+                <View style={localStyles.cartBadge}>
+                  <Text style={localStyles.cartBadgeText}>
+                    {cartCount > 99 ? "99+" : cartCount}
+                  </Text>
+                </View>
+              )}
+            </Pressable>
+          )}
 
           {/* Share */}
           <Pressable
@@ -1929,8 +1950,24 @@ export default function AlbumScreen() {
               <View style={localStyles.pricePill}>
                 {hasAccess ? (
                   <>
-                    <Ionicons name="checkmark-circle" size={14} color={COLORS.gold} />
-                    <Text style={localStyles.pricePillText}>{t("album.owned")}</Text>
+                    <Ionicons
+                      name={
+                        purchased
+                          ? "checkmark-circle"
+                          : isSubscribed
+                          ? "infinite"
+                          : "time-outline"
+                      }
+                      size={14}
+                      color={COLORS.gold}
+                    />
+                    <Text style={localStyles.pricePillText}>
+                      {purchased
+                        ? t("album.owned")
+                        : isSubscribed
+                        ? t("album.unlimited", "Unlimited")
+                        : t("album.rented", "Rented")}
+                    </Text>
                   </>
                 ) : (
                   <Text style={localStyles.pricePillText}>
@@ -1989,7 +2026,7 @@ export default function AlbumScreen() {
 
       <PurchaseOptionsCard
         bookPrice={currentPrice}
-        rentalPrice={isSubscribed || rented ? null : rentalPrice}
+        rentalPrice={isSubscribed || rented || purchased ? null : rentalPrice}
         currency={currency}
         owned={purchased}
         isSubscribed={isSubscribed}
@@ -2028,16 +2065,6 @@ export default function AlbumScreen() {
             />
           )}
         </>
-      )}
-
-      {tab === "bookmarks" && (
-        <View style={localStyles.emptyState}>
-          <Ionicons name="bookmark-outline" size={34} color={COLORS.textFaint} />
-          <Text style={localStyles.emptyTitle}>{t("album.noBookmarks")}</Text>
-          <Text style={localStyles.emptySub}>
-            {t("album.noBookmarksHint")}
-          </Text>
-        </View>
       )}
     </View>
   );
@@ -2125,7 +2152,8 @@ export default function AlbumScreen() {
         showsVerticalScrollIndicator={false}
       />
 
-      {/* Cart popup: stories added to cart */}
+      {/* Cart popup: stories added to cart (never opened for subscribers,
+          because their cart icon is hidden) */}
       <Modal
         visible={cartOpen}
         transparent
@@ -2770,12 +2798,7 @@ const localStyles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
 
-  // ---- Empty state ----
-  emptyState: {
-    alignItems: "center",
-    paddingVertical: 48,
-    gap: 8,
-  },
+  // ---- Empty text (used by the cart popup) ----
   emptyTitle: {
     color: COLORS.cream,
     fontSize: 15,

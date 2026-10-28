@@ -17,13 +17,18 @@ import { loadUser } from '../redux/slices/authReducer';
 import { store } from '../redux/store';
 import { useAppDispatch } from '../utils/typedReduxHooks';
 
+// Android la direct "sign-in" route la open aagaama, eppovum "index" la irundhu start aaganum
+export const unstable_settings = {
+  initialRouteName: 'index',
+};
 
 function AppInitializer({ children }: { children: React.ReactNode }) {
   const dispatch = useAppDispatch();
 
+  // App open aagumbodhu AsyncStorage la irundhu saved login ah restore pannum
   useEffect(() => {
     dispatch(loadUser());
-  }, []);
+  }, [dispatch]);
 
   return <>{children}</>;
 }
@@ -73,6 +78,7 @@ export default function RootLayout() {
                 <ListenTracker />
 
                 <Stack screenOptions={{ headerShown: false }}>
+                  <Stack.Screen name="index" />
                   <Stack.Screen name="sign-in" />
                   <Stack.Screen
                     name="playlist-info"
@@ -85,13 +91,6 @@ export default function RootLayout() {
                     name="player-standard"
                     options={{
                       presentation: 'transparentModal',
-                      animation: 'slide_from_bottom',
-                    }}
-                  />
-                  <Stack.Screen
-                    name="profile"
-                    options={{
-                      presentation: 'modal',
                       animation: 'slide_from_bottom',
                     }}
                   />

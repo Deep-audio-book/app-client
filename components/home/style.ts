@@ -146,32 +146,32 @@ const styles = StyleSheet.create({
   },
 
   /* ---------- Buy vs Unlimited experience switch ---------- */
+  /* Spotify-style filter chips (Buy books / Unlimited) */
   modeSwitch: {
     flexDirection: "row",
-    alignSelf: "flex-start",
+    alignItems: "center",
+    gap: 8,
     marginHorizontal: 18,
     marginTop: 14,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderWidth: 1,
-    borderColor: COLORS.hair,
-    borderRadius: 22,
-    padding: 3,
-    gap: 2,
   },
-  modeTab: {
-    paddingVertical: 7,
+  modeChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    height: 36,
     paddingHorizontal: 16,
     borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.10)",
   },
-  modeTabActive: {
+  modeChipActive: {
     backgroundColor: COLORS.lav,
   },
-  modeTabText: {
-    fontSize: 12,
+  modeChipText: {
+    fontSize: 14,
     fontWeight: "600",
-    color: COLORS.text2,
+    color: COLORS.text1,
   },
-  modeTabTextActive: {
+  modeChipTextActive: {
     color: "#241b2c",
   },
 
@@ -183,26 +183,26 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.panel,
     borderWidth: 1,
     borderColor: "rgba(183,155,209,0.35)",
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 14,
+    borderRadius: 18,
+    padding: 14,
+    overflow: "hidden",
   },
   subscribeBannerIconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: COLORS.lavSoft,
     alignItems: "center",
     justifyContent: "center",
   },
   subscribeBannerTitle: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "700",
     color: COLORS.text1,
     marginBottom: 2,
   },
   subscribeBannerSubtitle: {
-    fontSize: 11,
+    fontSize: 12,
     color: COLORS.text2,
   },
   subscribeBtn: {
