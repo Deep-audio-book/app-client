@@ -25,8 +25,8 @@
  */
 
 import React from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useTranslation } from "react-i18next";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { COLORS } from "./style";
 
@@ -97,7 +97,7 @@ const PurchaseOptionsCard: React.FC<PurchaseOptionsCardProps> = ({
       ) : (
         !!bookPrice && (
           <View style={styles.buyRow}>
-            <View style={{ flex: 1 }}>
+            <View style={styles.textCol}>
               <Text style={styles.buyLabel}>{t("purchase.buyThisAudiobook")}</Text>
               <Text style={styles.buyPrice}>{formatPrice(bookPrice, currency)}</Text>
             </View>
@@ -126,7 +126,7 @@ const PurchaseOptionsCard: React.FC<PurchaseOptionsCardProps> = ({
                 <HeadphoneIcon size={18} />
               </View>
 
-              <View style={{ flex: 1 }}>
+              <View style={styles.textCol}>
                 <Text style={styles.optionTitle}>{t("purchase.listenThisBookOnly")}</Text>
                 <Text style={styles.optionSubtitle}>{t("purchase.oneTimeNoSubscription")}</Text>
               </View>
@@ -154,7 +154,7 @@ const PurchaseOptionsCard: React.FC<PurchaseOptionsCardProps> = ({
                 <CrownIcon size={18} color={COLORS.lav} />
               </View>
 
-              <View style={{ flex: 1 }}>
+              <View style={styles.textCol}>
                 <Text style={styles.optionTitle}>{t("purchase.unlimitedActive")}</Text>
                 <Text style={styles.optionSubtitle}>{t("purchase.unlimitedActiveSubtitle")}</Text>
               </View>
@@ -165,7 +165,7 @@ const PurchaseOptionsCard: React.FC<PurchaseOptionsCardProps> = ({
                 <CrownIcon size={18} color={COLORS.lav} />
               </View>
 
-              <View style={{ flex: 1 }}>
+              <View style={styles.textCol}>
                 <Text style={styles.optionTitle}>{t("purchase.listenUnlimited")}</Text>
                 <Text style={styles.optionSubtitle}>{t("purchase.unlimitedSubtitle")}</Text>
               </View>
@@ -190,6 +190,11 @@ const PurchaseOptionsCard: React.FC<PurchaseOptionsCardProps> = ({
 const styles = StyleSheet.create({
   wrap: {
     gap: 10,
+  },
+  // minWidth: 0 lets long (e.g. Tamil) text wrap instead of collapsing.
+  textCol: {
+    flex: 1,
+    minWidth: 0,
   },
 
   /* ---------- outright buy row ---------- */
@@ -295,6 +300,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 16,
+    flexShrink: 0,
+    maxWidth: "50%",
   },
   optionBtnLightText: {
     color: COLORS.text1,
@@ -306,11 +313,14 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     paddingHorizontal: 16,
     borderRadius: 18,
+    flexShrink: 0,
+    maxWidth: "50%",
   },
   optionBtnStrongText: {
     color: "#241b2c",
     fontWeight: "700",
     fontSize: 13.5,
+    textAlign: "center",
   },
   optionDivider: {
     height: StyleSheet.hairlineWidth,

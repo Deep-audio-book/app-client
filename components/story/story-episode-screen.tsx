@@ -1510,7 +1510,7 @@ export default function AlbumScreen() {
   };
 
   const handleSubscribe = () => {
-    router.push("/subscribehome");
+    router.push("/plans");
   };
 
   const onLockedChapterPress = () => {

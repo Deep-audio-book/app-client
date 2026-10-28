@@ -149,6 +149,7 @@ const styles = StyleSheet.create({
   /* Spotify-style filter chips (Buy books / Unlimited) */
   modeSwitch: {
     flexDirection: "row",
+    flexWrap: "nowrap", // always one row; chips shrink (font scales down) on narrow phones
     alignItems: "center",
     gap: 8,
     marginHorizontal: 18,
@@ -157,9 +158,11 @@ const styles = StyleSheet.create({
   modeChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
-    height: 36,
-    paddingHorizontal: 16,
+    flexShrink: 1,
+    gap: 6,
+    minHeight: 36,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
     borderRadius: 18,
     backgroundColor: "rgba(255,255,255,0.10)",
   },
@@ -167,6 +170,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.lav,
   },
   modeChipText: {
+    flexShrink: 1,
     fontSize: 14,
     fontWeight: "600",
     color: COLORS.text1,
@@ -177,9 +181,9 @@ const styles = StyleSheet.create({
 
   /* ---------- subscribe banner (shown in Unlimited experience) ---------- */
   subscribeBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: 12,
     backgroundColor: COLORS.panel,
     borderWidth: 1,
     borderColor: "rgba(183,155,209,0.35)",
@@ -187,7 +191,17 @@ const styles = StyleSheet.create({
     padding: 14,
     overflow: "hidden",
   },
+  subscribeBannerTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  subscribeBannerTextWrap: {
+    flex: 1,
+    minWidth: 0, // lets the text wrap instead of being squeezed to 1 letter per line
+  },
   subscribeBannerIconWrap: {
+    flexShrink: 0,
     width: 38,
     height: 38,
     borderRadius: 19,
@@ -197,24 +211,30 @@ const styles = StyleSheet.create({
   },
   subscribeBannerTitle: {
     fontSize: 14,
+    lineHeight: 21,
     fontWeight: "700",
     color: COLORS.text1,
     marginBottom: 2,
   },
   subscribeBannerSubtitle: {
     fontSize: 12,
+    lineHeight: 18,
     color: COLORS.text2,
   },
   subscribeBtn: {
+    alignSelf: "stretch",
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: COLORS.lav,
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 16,
   },
   subscribeBtnText: {
     color: "#241b2c",
     fontWeight: "700",
-    fontSize: 11.5,
+    fontSize: 13,
+    textAlign: "center",
   },
 
   hero: {
@@ -260,6 +280,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 7,
     left: 7,
+    maxWidth: 98, // cover is 112 wide: keep inside it
     backgroundColor: COLORS.red,
     paddingVertical: 2.5,
     paddingHorizontal: 7,
@@ -341,6 +362,7 @@ const styles = StyleSheet.create({
   heroCoverPriceCart: {
     position: "absolute",
     left: 6,
+    right: 6,
     bottom: 6,
     flexDirection: "row",
     alignItems: "center",

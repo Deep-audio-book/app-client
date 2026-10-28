@@ -1,3 +1,4 @@
+import { useCartCount } from '@/hooks/Usecartcount';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -15,12 +16,10 @@ import { logoutUser } from '../../redux/slices/authReducer';
 import { useAppDispatch, useAppSelector } from '../../utils/typedReduxHooks';
 import { getDownloadedStorySummaries } from "../download/downloadService";
 import { useDownloadStore, waitForHydration } from '../download/downloadStore';
-import { selectCount, useCartStore } from './cartStore';
 import {
   APP_VERSION,
   AboutSheet,
   Badge,
-  CartSheet,
   ContactSheet,
   EditProfileSheet,
   x,
@@ -30,6 +29,8 @@ import styles, {
   COLORS,
   MAX_CONTENT_WIDTH,
 } from './style';
+
+
 
 function clampValue(value: number, min: number, max: number) {
   if (value < min) return min;
@@ -116,13 +117,12 @@ export default function ProfileScreen() {
   const avatarSize = Math.round(clampValue(96 * scale, 84, 112));
 
   // sheets
-  const [cartOpen, setCartOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
 
-  const cartCount = useCartStore(selectCount);
-  const clearCart = useCartStore((s) => s.clear);
+  // Rentals in the cart (from the backend), refreshed when this screen is focused
+  const cartCount = useCartCount();
 
   // Real downloaded-episode count for the "Downloads" row
   const [downloadedEpisodes, setDownloadedEpisodes] = useState(0);
@@ -145,7 +145,6 @@ export default function ProfileScreen() {
   // Logout: clear session, then dismiss the modal AND go to /sign-in atomically.
   const handleLogout = async () => {
     await dispatch(logoutUser());
-    clearCart();
 
     if (typeof (router as any).dismissTo === 'function') {
       (router as any).dismissTo('/sign-in');
@@ -157,11 +156,6 @@ export default function ProfileScreen() {
       }
       router.replace('/sign-in');
     }
-  };
-
-  const handleCheckout = () => {
-    setCartOpen(false);
-    router.push('/checkout' as any); // create this route for address + payment
   };
 
   // Called when the user taps "Save changes" in the edit sheet.
@@ -273,7 +267,7 @@ export default function ProfileScreen() {
             icon="cart-outline"
             label={t('profile.myCart', 'My cart')}
             badge={cartCount}
-            onPress={() => setCartOpen(true)}
+            onPress={() => router.push('/cart' as any)}
           />
           <View style={styles.rowDivider} />
           <Row
@@ -290,7 +284,7 @@ export default function ProfileScreen() {
             icon="star-outline"
             label={t('profile.subscription')}
             value={t('profile.subscriptionValidUntil', { date: 'May 23, 2021' })}
-            showChevron={false}
+            onPress={() => router.push("/plans")}
           />
           <View style={styles.rowDivider} />
           <Row icon="refresh-outline" label={t('profile.restorePurchases')} onPress={() => {}} />
@@ -357,11 +351,6 @@ export default function ProfileScreen() {
         initialName={user?.username ?? ''}
         email={user?.email}
         onSave={handleSaveProfile}
-      />
-      <CartSheet
-        visible={cartOpen}
-        onClose={() => setCartOpen(false)}
-        onCheckout={handleCheckout}
       />
       <ContactSheet visible={contactOpen} onClose={() => setContactOpen(false)} />
       <AboutSheet

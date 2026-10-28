@@ -339,7 +339,62 @@
   "unlimitedActive": "Unlimited is active",
   "unlimitedActiveSubtitle": "You can listen to every audiobook",
   "subscribeNow": "Subscribe now"
-}
+},
+   "cart": {
+    "itemsCount_one": "{{count}} rental",
+    "itemsCount_other": "{{count}} rentals",
+    "rentalDays_one": "{{count}}-day rental",
+    "rentalDays_other": "{{count}}-day rental",
+    "by": "by {{author}}",
+    "browse": "Browse books",
+    "tryAgain": "Try again",
+    "back": "Back",
+    "errors": {
+      "load": "Could not load your cart. Please try again.",
+      "add": "Couldn't add this book to your cart. Please try again.",
+      "remove": "Couldn't remove the item. Please try again.",
+      "timeout": "Request timed out. Check your connection and try again."
+    }
+  },
+"plans": {
+    "title": "Choose your plan",
+    "subtitle": "Pick what suits you. You can switch plans later.",
+    "currentlyOn": "You're on: {{name}}",
+    "features": {
+      "unlimited": "Unlimited audiobooks and video titles",
+      "offline": "Download and listen offline",
+      "perks": "Member-exclusive perks"
+    },
+    "planName": {
+      "monthly": "Monthly",
+      "quarterly": "Quarterly",
+      "annual": "Annual"
+    },
+    "flexible": "Flexible, month to month",
+    "perMonth": "~₹{{price}}/month",
+    "save": "Save {{percent}}%",
+    "badge": {
+      "current": "Current",
+      "best": "Best value"
+    },
+    "continue": "Continue",
+    "continuePrice": "Continue · ₹{{price}}",
+    "currentPlan": "Current plan",
+    "tryAgain": "Try again",
+    "noPlans": "No plans available right now.",
+    "close": "Close",
+    "planSelected": "Plan selected",
+    "errors": {
+      "generic": "Something went wrong. Try again.",
+      "timeout": "Request timed out. Check your connection and try again.",
+      "load": "Could not load plans. Please try again."
+    }
+  },
+  "monthlyPlanDescription": "Full access for 30 days.",
+  "quarterlyPlanDescription": "Full access for 90 days.",
+  "annualPlanDescription": "Full access for 365 days."
+ 
+
 
   
 

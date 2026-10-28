@@ -332,9 +332,12 @@ function goToLanguageSettings() {
   router.push({ pathname: "/language" });
 }
 
-// Placeholder route for the subscription / plans screen.
+// Subscription / plans screen (app/(tabs)/plans.tsx).
 function goToSubscribe() {
-  router.push({ pathname: "/subscribehome" });
+  // plans is a tab screen, so navigate() switches to it instead of stacking a duplicate.
+  // Full path incl. the (tabs) group so it resolves from any screen.
+  console.log("[Home] subscribe tapped -> /(tabs)/plans");
+  router.navigate("/(tabs)/plans" as any);
 }
 
 /*
@@ -436,7 +439,12 @@ const AccessBadge: React.FC<{
     return (
       <View style={[localStyles.accessPill, localStyles.accessPillUnlimited]}>
         <CrownIcon size={10} color={COLORS.lav} />
-        <Text style={[localStyles.accessPillText, localStyles.accessPillTextUnlimited]} numberOfLines={1}>
+        <Text
+          style={[localStyles.accessPillText, localStyles.accessPillTextUnlimited]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
+        >
           {t("home.unlimitedTag")}
         </Text>
       </View>
@@ -723,29 +731,36 @@ const NewReleaseCarousel: React.FC<{
 
       {/* centred heading + small View all pill in the corner */}
       <View style={localStyles.nrHeader}>
-        <View style={localStyles.nrTitleRow}>
-          <SparkleIcon size={15} />
-          <Text style={localStyles.nrTitle}>{title}</Text>
+        <View style={localStyles.nrHeaderTop}>
+          <View style={localStyles.nrTitleRow}>
+            <SparkleIcon size={15} />
+            <Text style={localStyles.nrTitle} numberOfLines={2}>
+              {title}
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={localStyles.nrViewAll}
+            activeOpacity={0.85}
+            onPress={() => {
+              router.push({
+                pathname: "/storyView",
+                params: { title, view_type, key_type, api_method: 'getStoryListViewAll' },
+              });
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={t("home.viewAllOf", { title })}
+          >
+            <Text style={localStyles.nrViewAllText} numberOfLines={1}>
+              {t("home.viewAll")}
+            </Text>
+          </TouchableOpacity>
         </View>
+
         <Text style={localStyles.nrSubtitle}>
           {t("home.newReleasesSubtitle", { defaultValue: "Fresh stories, just for you" })}
         </Text>
       </View>
-
-      <TouchableOpacity
-        style={localStyles.nrViewAll}
-        activeOpacity={0.85}
-        onPress={() => {
-          router.push({
-            pathname: "/storyView",
-            params: { title, view_type, key_type, api_method: 'getStoryListViewAll' },
-          });
-        }}
-        accessibilityRole="button"
-        accessibilityLabel={t("home.viewAllOf", { title })}
-      >
-        <Text style={localStyles.nrViewAllText}>{t("home.viewAll")}</Text>
-      </TouchableOpacity>
 
       <View onLayout={(e) => setBoxW(e.nativeEvent.layout.width)} style={{ width: "100%" }}>
         <Animated.ScrollView
@@ -1208,7 +1223,7 @@ const ModeChip: React.FC<{
     Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 40, bounciness: 6 }).start();
 
   return (
-    <Animated.View style={{ transform: [{ scale }] }}>
+    <Animated.View style={{ transform: [{ scale }], flexShrink: 1 }}>
       <Pressable
         onPress={onPress}
         onPressIn={pressIn}
@@ -1219,7 +1234,12 @@ const ModeChip: React.FC<{
         accessibilityLabel={label}
       >
         {icon(active ? "#241b2c" : COLORS.text2)}
-        <Text style={[styles.modeChipText, active && styles.modeChipTextActive]} numberOfLines={1}>
+        <Text
+          style={[styles.modeChipText, active && styles.modeChipTextActive]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.75}
+        >
           {label}
         </Text>
       </Pressable>
@@ -1276,13 +1296,15 @@ const SubscribeBanner: React.FC = () => {
         end={{ x: 1, y: 1 }}
         style={styles.subscribeBanner}
       >
-        <View style={styles.subscribeBannerIconWrap}>
-          <CrownIcon size={18} color={COLORS.lav} />
-        </View>
+        <View style={styles.subscribeBannerTop}>
+          <View style={styles.subscribeBannerIconWrap}>
+            <CrownIcon size={18} color={COLORS.lav} />
+          </View>
 
-        <View style={{ flex: 1 }}>
-          <Text style={styles.subscribeBannerTitle}>{t("home.unlimitedBannerTitle")}</Text>
-          <Text style={styles.subscribeBannerSubtitle}>{t("home.unlimitedBannerSubtitle")}</Text>
+          <View style={styles.subscribeBannerTextWrap}>
+            <Text style={styles.subscribeBannerTitle}>{t("home.unlimitedBannerTitle")}</Text>
+            <Text style={styles.subscribeBannerSubtitle}>{t("home.unlimitedBannerSubtitle")}</Text>
+          </View>
         </View>
 
         <View style={styles.subscribeBtn}>
@@ -1514,7 +1536,9 @@ const DeepAudiobooksHome: React.FC = () => {
 
                   <View style={styles.ribbon}>
                     <BookIcon />
-                    <Text style={styles.ribbonText}>{t("home.audioBook")}</Text>
+                    <Text style={styles.ribbonText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
+                      {t("home.audioBook")}
+                    </Text>
                   </View>
 
                   <View style={localStyles.heartCornerHero}>
@@ -1615,8 +1639,8 @@ const localStyles = StyleSheet.create({
   },
   heartCornerHero: {
     position: "absolute",
-    top: 10,
-    right: 10,
+    top: 32, // below the "Audio Book" ribbon so the two never overlap
+    right: 8,
   },
   langBtn: {
     width: 32,
@@ -1637,13 +1661,17 @@ const localStyles = StyleSheet.create({
   },
   cardAccessCorner: {
     position: "absolute",
+    left: 7,
     right: 7,
     bottom: 7,
+    alignItems: "flex-end",
   },
   bedAccessCorner: {
     position: "absolute",
+    left: 8,
     right: 8,
     bottom: 8,
+    alignItems: "flex-end",
   },
   cardMetaRight: {
     flexDirection: "row",
@@ -1665,32 +1693,39 @@ const localStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(183,155,209,0.28)",
   },
+  // Title (left, shrinks/wraps) and "View all" pill (right, never shrinks)
+  // sit in one row, so they can never overlap in any language.
   nrHeader: {
+    gap: 4,
+    paddingHorizontal: 16,
+  },
+  nrHeaderTop: {
+    flexDirection: "row",
     alignItems: "center",
-    gap: 2,
-    paddingHorizontal: 70,
+    justifyContent: "space-between",
+    gap: 10,
   },
   nrTitleRow: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
   nrTitle: {
+    flexShrink: 1,
     color: COLORS.text1,
     fontSize: 18,
+    lineHeight: 26,
     fontWeight: "800",
-    textAlign: "center",
   },
   nrSubtitle: {
     color: COLORS.text2,
     fontSize: 11,
-    textAlign: "center",
+    lineHeight: 16,
   },
   nrViewAll: {
-    position: "absolute",
-    top: 12,
-    right: 12,
-    zIndex: 5,
+    flexShrink: 0,
     backgroundColor: "rgba(255,255,255,0.1)",
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -1799,6 +1834,8 @@ const localStyles = StyleSheet.create({
 
   // Shared price/unlimited pill used by AccessBadge.
   accessPill: {
+    flexShrink: 1,
+    maxWidth: "100%",
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
