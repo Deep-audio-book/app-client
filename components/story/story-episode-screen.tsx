@@ -1,21 +1,23 @@
 import axios from "@/axios.config";
 import PurchaseOptionsCard from "@/components/ui/PurchaseOptionsCard";
 import WishlistHeart from "@/components/ui/WishlistHeart";
+import { useCartBadge } from "@/hooks/useCartBadge";
 import { storyWishlisted, useWishlistStore } from "@/redux/slices/wishlistStore";
 import { Ionicons } from "@expo/vector-icons";
 import { useNetInfo } from "@react-native-community/netinfo";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import type { TFunction } from "i18next";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ActivityIndicator,
   Alert,
   Animated,
+  BackHandler,
   Easing,
   FlatList,
-  Modal,
+  Linking,
   Platform,
   Pressable,
   Share,
@@ -53,6 +55,9 @@ import { useFocusRefetch } from "../../hooks/useFocusRefetch";
 import { usePlayer } from "../../providers/PlayerProvider";
 import { setIsExpanded } from "../../redux/slices/playerReducer";
 import { RootState } from "../../redux/store";
+import AboutSection from "./AboutSection";
+import StickyActionBar from "./StickyActionBar";
+import { CreditItem, getStoryMeta } from "./storyMeta";
 import styles, {
   BASE_WIDTH,
   COLORS,
@@ -70,16 +75,6 @@ type RecommendedStory = {
   cover: string;
   genre?: string;
   like?: boolean;
-};
-
-// One story inside the user's cart (comes from backend `getCart`)
-type CartItem = {
-  id: string | number;
-  title: string;
-  cover?: string;
-  genre?: string;
-  price_inr?: number;
-  price_usd?: number;
 };
 
 // TODO: put the route path of THIS screen here (the file name of this screen
@@ -907,10 +902,18 @@ function Tabs({
 // ---------------------------------------------------------
 
 export default function AlbumScreen() {
-  const { storyId, cover: coverParam } = useLocalSearchParams<{
+  const {
+    storyId,
+    title: titleParam,
+    cover: coverParam,
+    tab: tabParam,
+  } = useLocalSearchParams<{
     storyId?: string;
     title?: string;
     cover?: string;
+    // optional: open straight on the chapter list (e.g. from the player's
+    // episode-list button). Default = About page first.
+    tab?: string;
   }>();
 
   const router = useRouter();
@@ -918,12 +921,64 @@ export default function AlbumScreen() {
   const { width } = useWindowDimensions();
   const { t } = useTranslation();
 
+  // ---- Back navigation -------------------------------------------------
+  // This screen is re-used when a story is opened from "Recommended" (same
+  // route, new storyId), so the navigator has no entry for the previous
+  // story. We remember those stories here and go back to them one by one.
+  // When the trail is empty, back simply returns to the previous page
+  // (never forced to Home).
+  const storyTrailRef = useRef<
+    { storyId: string; title?: string; cover?: string }[]
+  >([]);
+  const expectedStoryRef = useRef<string | null>(null);
+
+  // storyId changed by something other than "Recommended" -> forget the trail
+  useEffect(() => {
+    if (expectedStoryRef.current !== String(storyId)) {
+      storyTrailRef.current = [];
+    }
+    expectedStoryRef.current = null;
+  }, [storyId]);
+
+  const handleBack = useCallback(() => {
+    const prev = storyTrailRef.current.pop();
+
+    if (prev) {
+      expectedStoryRef.current = prev.storyId;
+      router.setParams({
+        storyId: prev.storyId,
+        title: prev.title ?? "",
+        cover: prev.cover ?? "",
+      } as any);
+      return true;
+    }
+
+    if (router.canGoBack()) router.back();
+    return true;
+  }, [router]);
+
+  // Android hardware / gesture back follows the same trail
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (storyTrailRef.current.length === 0) return false; // let the navigator go back
+        return handleBack();
+      });
+      return () => sub.remove();
+    }, [handleBack])
+  );
+
   const [storyDetail, setStoryDetail] = useState<StoryDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // true when the story was loaded from the offline snapshot
   const [fromCache, setFromCache] = useState(false);
-  const [tab, setTab] = useState<TabKey>("chapters");
+  // A book always opens on the About / synopsis page first.
+  const [tab, setTab] = useState<TabKey>(
+    tabParam === "chapters" ? "chapters" : "about"
+  );
+  // height of the sticky action bar (so the list never hides behind it)
+  const [barHeight, setBarHeight] = useState(84);
   const [recommended, setRecommended] = useState<RecommendedStory[]>([]);
 
   // true once a story is on screen -> later focus refetches are silent
@@ -944,15 +999,17 @@ export default function AlbumScreen() {
   const [rented, setRented] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [rentBusy, setRentBusy] = useState(false);
-  const [cartState, setCartState] = useState<"idle" | "loading" | "added">(
-    "idle"
-  );
-  // Total number of stories in the user's cart (shown as badge on cart icon)
-  const [cartCount, setCartCount] = useState(0);
-  // Cart popup (opens from the header cart icon) + the stories inside it
-  const [cartOpen, setCartOpen] = useState(false);
-  const [cartLoading, setCartLoading] = useState(false);
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  // Cart: SAME shared store the Home screen uses (useCartBadge), so the
+  // count, the "already in cart" check mark and the add action behave
+  // exactly like the Home screen's "+" button.
+  const [cartBusy, setCartBusy] = useState(false);
+  const cartCount = useCartBadge((st) => st.count);
+  const inCart = useCartBadge((st) => !!st.ids[String(storyId)]);
+  const cartState: "idle" | "loading" | "added" = cartBusy
+    ? "loading"
+    : inCart
+    ? "added"
+    : "idle";
   const [currency, setCurrency] = useState<"INR" | "USD">("INR");
 
   const player = usePlayer() as any;
@@ -962,6 +1019,12 @@ export default function AlbumScreen() {
 
   // Read isPlaying from the SAME redux slice the player screen uses
   const isPlayerPlaying = useSelector((s: RootState) => !!s.player.isPlaying);
+
+  // The floating mini player sits right above the tab bar; the sticky action
+  // bar must be lifted above it so the two never cover each other.
+  const miniPlayerVisible = useSelector(
+    (s: RootState) => s.player.isActive && !s.player.isExpanded
+  );
 
   // Which story does the player (mini player) currently hold?
   const playerStoryId: string | number | undefined =
@@ -1080,10 +1143,9 @@ export default function AlbumScreen() {
     setRented(false);
     setIsSubscribed(false);
     setFromCache(false);
-    setCartState("idle");
-    setCartOpen(false);
+    setCartBusy(false);
     setRecommended([]);
-    setTab("chapters");
+    setTab("about");
     setError(null);
     setLoading(true);
 
@@ -1211,9 +1273,14 @@ export default function AlbumScreen() {
         );
         setFromCache(false);
 
-        // Cart: total items in cart + is THIS story already in the cart
-        setCartCount(Number(root.cart_count ?? detail0.cart_count ?? 0));
-        setCartState(flag(root.in_cart, detail0.in_cart) ? "added" : "idle");
+        // Cart: remember if THIS story is already in the cart and refresh
+        // the shared count (same store as Home).
+        useCartBadge
+          .getState()
+          .seedFromStories([
+            { id: story.id, in_cart: flag(root.in_cart, detail0.in_cart) },
+          ]);
+        useCartBadge.getState().refresh();
 
         // Backend `like` anuppina, global wishlist store la seed panrom
         // (store la already value irundha overwrite aagadhu)
@@ -1308,6 +1375,14 @@ export default function AlbumScreen() {
       Image.prefetch(story.cover, "memory-disk").catch(() => {});
     }
 
+    // remember the story we are leaving, so Back returns to it
+    storyTrailRef.current.push({
+      storyId: String(storyId),
+      title: titleParam,
+      cover: coverParam,
+    });
+    expectedStoryRef.current = String(story.id);
+
     router.push({
       pathname: ALBUM_ROUTE as any,
       params: {
@@ -1322,137 +1397,32 @@ export default function AlbumScreen() {
   // Pay-per-book: add to cart
   // -------------------------------------------------------
 
+  // Same behaviour as the Home screen "+" button:
+  //   not in cart -> add through the shared cart store (count updates at once)
+  //   already in cart -> open the Cart screen
   const handleAddToCart = async () => {
     // Active subscribers never buy individual books (everything is unlocked)
-    if (!storyDetail || cartState === "loading" || purchased || isSubscribed) return;
+    if (!storyDetail || cartBusy || purchased || isSubscribed) return;
 
-    try {
-      setCartState("loading");
-
-      const res = await axios.post("/", {
-        method: "addToCart",
-        story_id: Number(storyDetail.id),
-      });
-
-      const data = res.data?.data;
-      setCartCount(Number(data?.cart_count ?? cartCount + 1));
-      setCartState("added");
-    } catch (error: any) {
-      console.error("Add to cart error:", error);
-      setCartState("idle");
-
-      Alert.alert(
-        t("album.cart.failTitle"),
-        error?.response?.data?.message ||
-          error?.message ||
-          t("album.download.tryAgain")
-      );
-    }
-  };
-
-  // -------------------------------------------------------
-  // Cart popup: list of stories in the cart
-  // -------------------------------------------------------
-
-  const fetchCart = async () => {
-    try {
-      setCartLoading(true);
-
-      const res = await axios.post("/", { method: "getCart" });
-      const payload = res.data?.data;
-      const list: any[] = Array.isArray(payload)
-        ? payload
-        : Array.isArray(payload?.items)
-        ? payload.items
-        : [];
-
-      const items: CartItem[] = list
-        .filter((s) => s && s.id != null)
-        .map((s) => ({
-          id: s.id,
-          title: s.title,
-          cover: s.cover,
-          genre: s.genre,
-          price_inr: s.price_inr,
-          price_usd: s.price_usd,
-        }));
-
-      setCartItems(items);
-      setCartCount(Number(payload?.cart_count ?? items.length));
-    } catch (err: any) {
-      console.error("getCart error:", err);
-      Alert.alert(
-        t("album.cart.failTitle"),
-        err?.response?.data?.message ||
-          err?.message ||
-          t("album.download.tryAgain")
-      );
-      setCartOpen(false);
-    } finally {
-      setCartLoading(false);
-    }
-  };
-
-  // Header cart icon: just OPEN the list (adding is done from the
-  // purchase card / locked episode popup)
-  const handleCartPress = () => {
     if (offline) {
       Alert.alert(t("album.offlineTitle"), t("album.offlineConnectUnlock"));
       return;
     }
-    setCartOpen(true);
-    fetchCart();
-  };
 
-  const closeCart = () => setCartOpen(false);
-
-  const handleRemoveFromCart = async (item: CartItem) => {
-    // remove right away, put it back if the request fails
-    const previous = cartItems;
-    setCartItems(previous.filter((c) => String(c.id) !== String(item.id)));
-
-    try {
-      const res = await axios.post("/", {
-        method: "removeFromCart",
-        story_id: Number(item.id),
-      });
-
-      setCartCount(
-        Number(res.data?.data?.cart_count ?? Math.max(previous.length - 1, 0))
-      );
-
-      // removed the story we are looking at -> header icon goes back to normal
-      if (storyDetail && String(item.id) === String(storyDetail.id)) {
-        setCartState("idle");
-      }
-    } catch (err: any) {
-      console.error("removeFromCart error:", err);
-      setCartItems(previous);
-      Alert.alert(
-        t("album.cart.failTitle"),
-        err?.response?.data?.message ||
-          err?.message ||
-          t("album.download.tryAgain")
-      );
+    if (inCart) {
+      router.push(CART_ROUTE as any);
+      return;
     }
+
+    setCartBusy(true);
+    const ok = await useCartBadge.getState().add(storyDetail.id);
+    setCartBusy(false);
+
+    if (!ok) Alert.alert(t("album.cart.failTitle"), t("album.download.tryAgain"));
   };
 
-  const openCartStory = (item: CartItem) => {
-    closeCart();
-    if (storyDetail && String(item.id) === String(storyDetail.id)) return;
-
-    router.push({
-      pathname: ALBUM_ROUTE as any,
-      params: {
-        storyId: String(item.id),
-        title: item.title,
-        cover: item.cover,
-      },
-    });
-  };
-
-  const handleCheckout = () => {
-    closeCart();
+  // Header cart icon: open the Cart screen (same as the Home cart icon)
+  const handleCartPress = () => {
     router.push(CART_ROUTE as any);
   };
 
@@ -1521,20 +1491,66 @@ export default function AlbumScreen() {
       return;
     }
 
+    const detail: any = storyDetail;
+    const rentPrice =
+      Number(currency === "INR" ? detail.rental_price_inr : detail.rental_price_usd) ||
+      null;
+    const rentalOnlyTitle = ["rental_only", "is_rental_only"].some(
+      (k) => detail[k] === true || detail[k] === 1 || detail[k] === "1"
+    );
     const price =
       currency === "INR" ? storyDetail.price_inr : storyDetail.price_usd;
+
+    const buttons: { text: string; style?: "cancel"; onPress?: () => void }[] = [
+      { text: t("album.notNow"), style: "cancel" },
+    ];
+
+    if (rentPrice && !isSubscribed) {
+      buttons.push({
+        text: `${t("album.sticky.rentNow")} · ${formatPrice(rentPrice, currency)}`,
+        onPress: handleRentListen,
+      });
+    }
+    if (price && !rentalOnlyTitle) {
+      buttons.push({ text: t("album.cart.add"), onPress: handleAddToCart });
+    }
 
     Alert.alert(
       t("album.lockedTitle"),
       t("album.lockedMsg", {
         title: storyDetail.title,
-        price: formatPrice(price, currency),
+        price: formatPrice(rentPrice ?? price, currency),
       }),
-      [
-        { text: t("album.notNow"), style: "cancel" },
-        { text: t("album.cart.add"), onPress: handleAddToCart },
-      ]
+      buttons
     );
+  };
+
+  // -------------------------------------------------------
+  // About page helpers: credits link + free episode
+  // -------------------------------------------------------
+
+  // Author / narrator -> their profile page. Production house -> its link
+  // (only when the backend sends one).
+  const handleOpenCredit = (credit: CreditItem) => {
+    if (credit.kind === "production") {
+      if (credit.url) {
+        Linking.openURL(credit.url).catch(() => {});
+      }
+      return;
+    }
+
+    if (!credit.id) return;
+
+    const isAuthor = credit.kind === "author";
+    router.push({
+      pathname: "/author-details",
+      params: {
+        id: credit.id,
+        method: isAuthor ? "getAuthorDetails" : "getNarratorDetails",
+        id_key: isAuthor ? "author_id" : "narrator_id",
+        title: isAuthor ? "Author" : "Narrator",
+      },
+    } as any);
   };
 
   // -------------------------------------------------------
@@ -1559,7 +1575,7 @@ export default function AlbumScreen() {
 
         <Pressable
           hitSlop={10}
-          onPress={() => router.back()}
+          onPress={handleBack}
           style={[localStyles.loadingBack, { top: insets.top + 6 }]}
           accessibilityRole="button"
           accessibilityLabel={t("album.goBack")}
@@ -1629,6 +1645,7 @@ export default function AlbumScreen() {
   const horizontalPadding = Math.max(Math.round(20 * scale), sideInset);
 
   const coverSize = Math.round(clampValue(124 * scale, 100, 144));
+  const heroCoverSize = Math.round(clampValue(168 * scale, 140, 200));
 
   const hasPaidContent =
     !!storyDetail.chapters?.some((chapter) => !isFree(chapter)) &&
@@ -1671,6 +1688,39 @@ export default function AlbumScreen() {
   const isThisStoryActive =
     playerHasStory && String(playerStoryId) === String(storyDetail.id);
 
+  // About-page data: rating, views, short synopsis, credits
+  const meta = getStoryMeta(storyDetail);
+
+  if (__DEV__) {
+    // Shows in the Metro terminal: which fields getStoryDetail really sends.
+    // Use it to confirm the final names for author / narrator / production.
+    console.log("[About] getStoryDetail keys:", Object.keys(storyDetail));
+    console.log("[About] credits raw:", JSON.stringify((storyDetail as any).credits));
+    console.log("[About] credits parsed:", JSON.stringify(meta.credits));
+  }
+
+  // Titles that can only be rented must never show a purchase action
+  const rentalOnly = ["rental_only", "is_rental_only"].some((k) => {
+    const v = (storyDetail as any)[k];
+    return v === true || v === 1 || v === "1";
+  });
+
+  // Which main action the sticky bar shows
+  const canRent = !!rentalPrice && !isSubscribed;
+  const canAddToCart = !!currentPrice && !rentalOnly;
+  const stickyMode: "play" | "rent" | "subscribe" =
+    hasAccess || isOfflineMode || !hasPaidContent
+      ? "play"
+      : canRent || canAddToCart
+      ? "rent"
+      : "subscribe";
+
+  // first free episode (index inside the player list)
+  const freeChapter = (storyDetail.chapters ?? []).find((c) => isFree(c));
+  const freeChapterIndex = freeChapter
+    ? chapterIndexById.get(String(freeChapter.id)) ?? -1
+    : -1;
+
   // -------------------------------------------------------
   // Play entire story
   // -------------------------------------------------------
@@ -1708,6 +1758,28 @@ export default function AlbumScreen() {
       router.push("/player-standard");
     } catch (error) {
       console.error("Play story error:", error);
+    }
+  };
+
+  // -------------------------------------------------------
+  // Play the first free episode straight in the player
+  // -------------------------------------------------------
+
+  const handlePlayFree = async () => {
+    if (freeChapterIndex < 0) return;
+
+    if (isOfflineMode) {
+      Alert.alert(t("album.offlineTitle"), t("album.offlineDownloadEpisodes"));
+      return;
+    }
+
+    try {
+      await prepareChapters();
+      await playChapterAt(freeChapterIndex, { autoPlay: true });
+      dispatch(setIsExpanded(true));
+      router.push("/player-standard");
+    } catch (error) {
+      console.error("Play free episode error:", error);
     }
   };
 
@@ -1789,7 +1861,7 @@ export default function AlbumScreen() {
       <View style={[localStyles.topBar, { marginTop: insets.top + 6 }]}>
         <Pressable
           hitSlop={10}
-          onPress={() => router.back()}
+          onPress={handleBack}
           style={({ pressed }) => [
             localStyles.iconButton,
             pressed && { opacity: 0.6 },
@@ -1884,19 +1956,19 @@ export default function AlbumScreen() {
         </View>
       )}
 
-      {/* Cover + title */}
-      <View style={localStyles.heroRow}>
+      {/* Cover + title (centered) with the quick facts right below the thumbnail */}
+      <View style={localStyles.heroCenter}>
         <View
           style={[
             localStyles.coverShadowWrap,
-            { width: coverSize, height: coverSize, borderRadius: 22 },
+            { width: heroCoverSize, height: heroCoverSize, borderRadius: 22 },
           ]}
         >
           <Image
             source={{ uri: coverUri }}
             style={[
               localStyles.coverImage,
-              { width: coverSize, height: coverSize, borderRadius: 22 },
+              { width: heroCoverSize, height: heroCoverSize, borderRadius: 22 },
             ]}
             contentFit="cover"
             transition={300}
@@ -1905,79 +1977,61 @@ export default function AlbumScreen() {
           />
         </View>
 
-        <View style={localStyles.heroTextCol}>
-          <Text
-            style={localStyles.heroTitle}
-            numberOfLines={4}
-            accessibilityRole="header"
-          >
-            {storyDetail.title}
-          </Text>
+        <Text
+          style={localStyles.heroTitleCenter}
+          numberOfLines={3}
+          accessibilityRole="header"
+        >
+          {storyDetail.title}
+        </Text>
 
-          {!!storyDetail.genre && (
-            <Text style={localStyles.heroGenre}>{storyDetail.genre}</Text>
+        {/* duration | genre | star rating (each shown only when available) */}
+        <View style={localStyles.factsRow}>
+          {!!totalDuration && (
+            <View style={localStyles.factItem}>
+              <Ionicons name="time-outline" size={14} color={COLORS.textMuted} />
+              <Text style={localStyles.factText}>{totalDuration}</Text>
+            </View>
           )}
 
-          <Text style={localStyles.heroMeta}>
-            {t("album.episodeCount", { count: storyDetail.chapters.length })}
-            {totalDuration ? `  •  ${totalDuration}` : ""}
-          </Text>
-
-          {/* Play + price */}
-          <View style={localStyles.heroActions}>
-            <Pressable
-              onPress={handlePlayAlbum}
-              style={({ pressed }) => [
-                localStyles.playPill,
-                pressed && { opacity: 0.9, transform: [{ scale: 0.97 }] },
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel={t("album.playStory")}
-            >
-              <Ionicons
-                name={isThisStoryActive && isPlayerPlaying ? "pause" : "play"}
-                size={16}
-                color={COLORS.bgDeep}
-              />
-              <Text style={localStyles.playPillText}>
-                {isThisStoryActive && isPlayerPlaying
-                  ? t("album.pause", "Pause")
-                  : t("album.play")}
+          {!!storyDetail.genre && (
+            <View style={localStyles.factItem}>
+              <Ionicons name="pricetag-outline" size={14} color={COLORS.textMuted} />
+              <Text style={[localStyles.factText, { textTransform: "capitalize" }]}>
+                {storyDetail.genre}
               </Text>
-            </Pressable>
+            </View>
+          )}
 
-            {hasPaidContent && !isOfflineMode && (
-              <View style={localStyles.pricePill}>
-                {hasAccess ? (
-                  <>
-                    <Ionicons
-                      name={
-                        purchased
-                          ? "checkmark-circle"
-                          : isSubscribed
-                          ? "infinite"
-                          : "time-outline"
-                      }
-                      size={14}
-                      color={COLORS.gold}
-                    />
-                    <Text style={localStyles.pricePillText}>
-                      {purchased
-                        ? t("album.owned")
-                        : isSubscribed
-                        ? t("album.unlimited", "Unlimited")
-                        : t("album.rented", "Rented")}
-                    </Text>
-                  </>
-                ) : (
-                  <Text style={localStyles.pricePillText}>
-                    {formatPrice(currentPrice, currency)}
-                  </Text>
-                )}
-              </View>
-            )}
-          </View>
+          {meta.rating !== null && (
+            <View style={localStyles.factItem}>
+              <Ionicons name="star" size={14} color={COLORS.goldLight} />
+              <Text style={localStyles.factText}>{meta.rating.toFixed(1)}</Text>
+            </View>
+          )}
         </View>
+
+        <Text style={localStyles.heroMetaCenter}>
+          {t("album.episodeCount", { count: storyDetail.chapters.length })}
+        </Text>
+
+        {/* Already unlocked? show it as a small status chip (no price tag, no extra button) */}
+        {hasPaidContent && !isOfflineMode && hasAccess && (
+          <View style={[localStyles.pricePill, { marginTop: 10 }]}>
+            <Ionicons
+              name={purchased ? "checkmark-circle" : isSubscribed ? "diamond" : "time-outline"}
+              size={14}
+              color={COLORS.gold}
+            />
+            <Text style={localStyles.pricePillText}>
+              {purchased
+                ? t("album.owned")
+                : isSubscribed
+                ? t("album.premium")
+                : t("album.rented", "Rented")}
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Tabs */}
@@ -2025,7 +2079,7 @@ export default function AlbumScreen() {
       )}
 
       <PurchaseOptionsCard
-        bookPrice={currentPrice}
+        bookPrice={rentalOnly ? null : currentPrice}
         rentalPrice={isSubscribed || rented || purchased ? null : rentalPrice}
         currency={currency}
         owned={purchased}
@@ -2045,16 +2099,20 @@ export default function AlbumScreen() {
       {tab === "chapters" && purchaseSection}
 
       {tab === "about" && (
-        <>
-          <Text style={[styles.creditsHeading, localStyles.aboutHeading]}>
-            {t("album.aboutTitle", { title: storyDetail.title })}
-          </Text>
-
-          <Text style={localStyles.description} maxFontSizeMultiplier={1.4}>
-            {storyDetail.description}
-          </Text>
-
-          <CreditsSection credits={storyDetail.credits} />
+        <AboutSection
+          story={storyDetail}
+          meta={meta}
+          hasAccess={hasAccess}
+          isFree={isFree}
+          onOpenCredit={handleOpenCredit}
+          onSeeAllChapters={() => setTab("chapters")}
+          onPlayFree={
+            !hasAccess && !isOfflineMode && freeChapterIndex >= 0
+              ? handlePlayFree
+              : undefined
+          }
+          onLockedPress={onLockedChapterPress}
+        >
           {purchaseSection}
 
           {/* Last 10 stories from the backend */}
@@ -2064,7 +2122,7 @@ export default function AlbumScreen() {
               onPressStory={openRecommended}
             />
           )}
-        </>
+        </AboutSection>
       )}
     </View>
   );
@@ -2147,132 +2205,33 @@ export default function AlbumScreen() {
           maxWidth: MAX_CONTENT_WIDTH,
           width: contentWidth,
           alignSelf: "center",
-          paddingBottom: MINI_PLAYER_HEIGHT + insets.bottom + 24,
+          // keep the last row clear of the sticky bar (+ mini player)
+          paddingBottom:
+            barHeight + (miniPlayerVisible ? MINI_PLAYER_HEIGHT + 24 : 0) + 16,
         }}
         showsVerticalScrollIndicator={false}
       />
 
-      {/* Cart popup: stories added to cart (never opened for subscribers,
-          because their cart icon is hidden) */}
-      <Modal
-        visible={cartOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={closeCart}
-      >
-        <View style={localStyles.cartOverlay}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={closeCart} />
+      {/* Main action: always visible on both About and Chapters */}
+      <StickyActionBar
+        mode={stickyMode}
+        horizontalPadding={horizontalPadding}
+        bottomOffset={miniPlayerVisible ? MINI_PLAYER_HEIGHT + 24 : 0}
+        onHeight={setBarHeight}
+        playing={isThisStoryActive && isPlayerPlaying}
+        onPlay={handlePlayAlbum}
+        rentPriceLabel={canRent ? formatPrice(rentalPrice ?? undefined, currency) : undefined}
+        rentBusy={rentBusy}
+        onRent={canRent ? handleRentListen : undefined}
+        showCart={canAddToCart}
+        cartState={cartState}
+        cartPriceLabel={canRent ? undefined : formatPrice(currentPrice, currency)}
+        onAddToCart={handleAddToCart}
+        onGoToCart={() => router.push(CART_ROUTE as any)}
+        onSubscribe={handleSubscribe}
+      />
 
-          <View
-            style={[
-              localStyles.cartSheet,
-              { paddingBottom: insets.bottom + 16 },
-            ]}
-          >
-            <View style={localStyles.cartHandle} />
 
-            <View style={localStyles.cartHeaderRow}>
-              <Text style={localStyles.cartTitle}>
-                {t("album.cart.title", "My Cart")}
-                {cartCount > 0 ? `  (${cartCount})` : ""}
-              </Text>
-              <Pressable
-                hitSlop={10}
-                onPress={closeCart}
-                accessibilityRole="button"
-                accessibilityLabel={t("album.download.close")}
-              >
-                <Ionicons name="close" size={22} color={COLORS.cream} />
-              </Pressable>
-            </View>
-
-            {cartLoading ? (
-              <View style={localStyles.cartCenter}>
-                <ActivityIndicator size="small" color={COLORS.gold} />
-              </View>
-            ) : cartItems.length === 0 ? (
-              <View style={localStyles.cartCenter}>
-                <Ionicons name="cart-outline" size={34} color={COLORS.textFaint} />
-                <Text style={localStyles.emptyTitle}>{t("album.cart.empty", "Your cart is empty")}</Text>
-                <Text style={localStyles.emptySub}>
-                  {t("album.cart.emptyHint", "Stories you add to the cart will show up here.")}
-                </Text>
-              </View>
-            ) : (
-              <>
-                <FlatList
-                  data={cartItems}
-                  keyExtractor={(item) => String(item.id)}
-                  style={{ maxHeight: 360 }}
-                  showsVerticalScrollIndicator={false}
-                  ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-                  renderItem={({ item }) => {
-                    const price =
-                      currency === "INR" ? item.price_inr : item.price_usd;
-                    return (
-                      <Pressable
-                        onPress={() => openCartStory(item)}
-                        style={({ pressed }) => [
-                          localStyles.cartRow,
-                          pressed && localStyles.cardPressed,
-                        ]}
-                      >
-                        <Image
-                          source={{ uri: item.cover }}
-                          style={localStyles.cartRowCover}
-                          contentFit="cover"
-                          cachePolicy="memory-disk"
-                          recyclingKey={String(item.id)}
-                        />
-                        <View style={localStyles.cardInfo}>
-                          <Text style={localStyles.cardTitle} numberOfLines={2}>
-                            {item.title}
-                          </Text>
-                          {!!item.genre && (
-                            <Text style={localStyles.recGenre} numberOfLines={1}>
-                              {item.genre}
-                            </Text>
-                          )}
-                          {price !== undefined && (
-                            <Text style={localStyles.cartRowPrice}>
-                              {formatPrice(price, currency)}
-                            </Text>
-                          )}
-                        </View>
-                        <Pressable
-                          hitSlop={10}
-                          onPress={() => handleRemoveFromCart(item)}
-                          accessibilityRole="button"
-                          accessibilityLabel={t("album.cart.remove", "Remove from cart")}
-                        >
-                          <Ionicons
-                            name="trash-outline"
-                            size={19}
-                            color={COLORS.textFaint}
-                          />
-                        </Pressable>
-                      </Pressable>
-                    );
-                  }}
-                />
-
-                <Pressable
-                  onPress={handleCheckout}
-                  style={({ pressed }) => [
-                    localStyles.checkoutButton,
-                    pressed && { opacity: 0.9 },
-                  ]}
-                  accessibilityRole="button"
-                >
-                  <Text style={localStyles.checkoutText}>
-                    {t("album.cart.checkout", "Checkout")}
-                  </Text>
-                </Pressable>
-              </>
-            )}
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -2503,6 +2462,36 @@ const localStyles = StyleSheet.create({
     backgroundColor: COLORS.maroon,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.14)",
+  },
+  // centered hero (cover, title, quick facts)
+  heroCenter: {
+    alignItems: "center",
+    marginTop: 10,
+  },
+  heroTitleCenter: {
+    marginTop: 18,
+    fontWeight: "700",
+    fontSize: 24,
+    lineHeight: 32,
+    color: COLORS.cream,
+    textAlign: "center",
+  },
+  factsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "center",
+    columnGap: 16,
+    rowGap: 6,
+    marginTop: 10,
+  },
+  factItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+  factText: { color: COLORS.textMuted, fontSize: 13, fontWeight: "500" },
+  heroMetaCenter: {
+    marginTop: 6,
+    color: COLORS.textMutedDeep,
+    fontSize: 12.5,
+    textAlign: "center",
   },
   heroTextCol: {
     flex: 1,

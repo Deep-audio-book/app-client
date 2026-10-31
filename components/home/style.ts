@@ -20,7 +20,7 @@ export const COLORS = {
   wrapBg: "#05070a",
   panel: "#1b2426",
   panel2: "#212b2d",
-  green:"#2E635B",
+  green: "#2E635B",
   lav: "#b79bd1",
   lavDim: "#8b7aa0",
   lavSoft: "rgba(183,155,209,0.16)",
@@ -30,17 +30,23 @@ export const COLORS = {
   text2: "#a9b3b0",
   text3: "#75807d",
   gold: "#e8c34d",
+  // Highlight used for the selected carousel slide + current chapter.
+  highlight: "#F5B93C",
   hair: "rgba(243,239,247,0.08)",
 };
 
-/* ---------- shared card size (grid, bed, new-release carousel) ---------- */
-export const CARD_W = 172;
-export const CARD_H = 258;      // 2:3 vertical rectangle
+/* ---------- shared thumbnail sizes ----------
+ * Vertical book / show thumbnails  -> 3:4  (CARD_W x CARD_H)
+ * Trending, Editor's Picks, genres -> 1:1  (SQUARE_SIZE x SQUARE_SIZE)
+ */
+export const CARD_W = 164;
+export const CARD_H = 219; // 3:4 vertical rectangle (164 * 4 / 3)
+export const SQUARE_SIZE = 164; // 1:1
+export const GENRE_TILE = 96; // 1:1
 export const CARD_RADIUS = 16;
-
+export const H_PAD = 18;
 
 const styles = StyleSheet.create({
-
   wrap: {
     flex: 1,
     backgroundColor: COLORS.wrapBg,
@@ -81,24 +87,20 @@ const styles = StyleSheet.create({
   wrapContent: {
     flexGrow: 1,
     alignItems: "stretch",
-    paddingVertical: 32,
+    paddingBottom: 32,
   },
   screen: {
     width: "100%",
-    // paddingTop removed: the top bar now gets its top spacing from
-    // insets.top (applied inline in the component), so a fixed value
-    // here would stack on top of it and push content down on devices
-    // with a notch / Dynamic Island.
     paddingBottom: 24,
     paddingHorizontal: 0,
   },
+
+  /* ---------- top bar ---------- */
   topbar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 18,
-    // paddingTop removed here too: it's supplied inline as
-    // insets.top + 8 in the component so it adapts per device.
+    paddingHorizontal: H_PAD,
     paddingBottom: 4,
   },
   wordmark: {
@@ -123,9 +125,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   bell: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     borderWidth: 1,
     borderColor: COLORS.hair,
     alignItems: "center",
@@ -145,14 +147,13 @@ const styles = StyleSheet.create({
     color: "#fff",
   },
 
-  /* ---------- Buy vs Unlimited experience switch ---------- */
-  /* Spotify-style filter chips (Buy books / Unlimited) */
+  /* ---------- Rent vs Premium switch (free users only) ---------- */
   modeSwitch: {
     flexDirection: "row",
-    flexWrap: "nowrap", // always one row; chips shrink (font scales down) on narrow phones
+    flexWrap: "nowrap",
     alignItems: "center",
     gap: 8,
-    marginHorizontal: 18,
+    marginHorizontal: H_PAD,
     marginTop: 14,
   },
   modeChip: {
@@ -160,10 +161,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexShrink: 1,
     gap: 6,
-    minHeight: 36,
+    minHeight: 38,
     paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 18,
+    paddingHorizontal: 14,
+    borderRadius: 19,
     backgroundColor: "rgba(255,255,255,0.10)",
   },
   modeChipActive: {
@@ -179,74 +180,16 @@ const styles = StyleSheet.create({
     color: "#241b2c",
   },
 
-  /* ---------- subscribe banner (shown in Unlimited experience) ---------- */
-  subscribeBanner: {
-    flexDirection: "column",
-    alignItems: "stretch",
-    gap: 12,
-    backgroundColor: COLORS.panel,
-    borderWidth: 1,
-    borderColor: "rgba(183,155,209,0.35)",
-    borderRadius: 18,
-    padding: 14,
-    overflow: "hidden",
-  },
-  subscribeBannerTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  subscribeBannerTextWrap: {
-    flex: 1,
-    minWidth: 0, // lets the text wrap instead of being squeezed to 1 letter per line
-  },
-  subscribeBannerIconWrap: {
-    flexShrink: 0,
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: COLORS.lavSoft,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  subscribeBannerTitle: {
-    fontSize: 14,
-    lineHeight: 21,
-    fontWeight: "700",
-    color: COLORS.text1,
-    marginBottom: 2,
-  },
-  subscribeBannerSubtitle: {
-    fontSize: 12,
-    lineHeight: 18,
-    color: COLORS.text2,
-  },
-  subscribeBtn: {
-    alignSelf: "stretch",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: COLORS.lav,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 16,
-  },
-  subscribeBtnText: {
-    color: "#241b2c",
-    fontWeight: "700",
-    fontSize: 13,
-    textAlign: "center",
-  },
-
+  /* ---------- hero area (greeting + continue listening) ---------- */
   hero: {
-    paddingHorizontal: 18,
-    paddingTop: 14,
-    paddingBottom: 6,
+    paddingHorizontal: H_PAD,
+    paddingTop: 16,
+    paddingBottom: 4,
   },
-
   greet: {
     fontWeight: "700",
-    fontSize: 20,
-    lineHeight: 25,
+    fontSize: 22,
+    lineHeight: 28,
     color: COLORS.text1,
     marginBottom: 3,
   },
@@ -256,302 +199,107 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
 
-  /* ---------- hero card ----------
-   * Row layout: cover on the left, info block on the right.
-   * Cover is now a vertical rectangle (112 x 168, 2:3).
-   */
-  primaryCard: {
-    flexDirection: "row",
-    gap: 12,
-    backgroundColor: COLORS.panel,
-    borderRadius: 16,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: COLORS.hair,
-  },
-  primaryCover: {
-    width: 112,
-    height: 168,
-    borderRadius: 10,
-    overflow: "hidden",
-    position: "relative",
-  },
-  ribbon: {
-    position: "absolute",
-    top: 7,
-    left: 7,
-    maxWidth: 98, // cover is 112 wide: keep inside it
-    backgroundColor: COLORS.red,
-    paddingVertical: 2.5,
-    paddingHorizontal: 7,
-    borderRadius: 5,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-  },
-  ribbonCard: {
-    position: "absolute",
-    top: 7,
-    left: 7,
-    backgroundColor: COLORS.red,
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    borderRadius: 5,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-  },
-  ribbonText: {
-    color: "#fff",
-    fontSize: 8.5,
-    fontWeight: "600",
-  },
-  primaryInfo: {
-    flex: 1,
-    minWidth: 0,
-    // flex-start keeps the title always starting level with the top of the cover.
-    justifyContent: "flex-start",
-  },
-  primaryLabel: {
-    fontSize: 10,
-    color: COLORS.lav,
-    letterSpacing: 0.9,
-    textTransform: "uppercase",
-    marginBottom: 5,
-  },
-  primaryTitle: {
-    fontWeight: "600",
-    fontSize: 16,
-    lineHeight: 20,
-    color: COLORS.text1,
-    marginBottom: 6,
-  },
-  primaryNarrator: {
-    fontSize: 11.5,
-    color: COLORS.text3,
-    marginBottom: 8,
-  },
-  heroMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 10,
-  },
-  heroGenrePill: {
-    backgroundColor: COLORS.lavSoft,
-    borderWidth: 1,
-    borderColor: "rgba(183,155,209,0.35)",
-    paddingHorizontal: 9,
-    paddingVertical: 2,
-    borderRadius: 10,
-  },
-  heroGenrePillText: {
-    color: COLORS.lav,
-    fontSize: 10.5,
-    fontWeight: "600",
-  },
-
-  heroActionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-start",
-    marginTop: 2,
-  },
-  // Price + cart (or Unlimited pill), shown as a small overlay badge
-  // on the hero cover itself (bottom-left corner).
-  heroCoverPriceCart: {
-    position: "absolute",
-    left: 6,
-    right: 6,
-    bottom: 6,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
-  heroCoverPriceText: {
-    backgroundColor: "#ffffff",
-    color: "#241b2c",
-    fontSize: 11,
-    fontWeight: "700",
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 6,
-    overflow: "hidden",
-  },
-  heroCoverCartBtn: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: COLORS.lav,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  heroPriceBlock: {
-    marginRight: 2,
-    flexShrink: 1,
-    alignItems: "flex-start",
-  },
-  heroPriceLabel: {
-    color: COLORS.lavDim,
-    fontSize: 10,
-  },
-  heroPriceValue: {
-    color: "#241b2c",
-    fontSize: 15,
-    fontWeight: "700",
-    backgroundColor: "#ffffff",
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 8,
-    overflow: "hidden",
-    alignSelf: "flex-start",
-    marginTop: 2,
-  },
-  heroCartBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: COLORS.lav,
-    backgroundColor: "transparent",
-  },
-  resumeBtn: {
-    backgroundColor: COLORS.lav,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    height: 38,
-    borderRadius: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    alignSelf: "flex-start",
-  },
-  resumeBtnText: {
-    color: "#241b2c",
-    fontWeight: "700",
-    fontSize: 12.5,
-  },
-
+  /* ---------- trending genre chips ---------- */
   chipRow: {
     flexDirection: "row",
     gap: 8,
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 4,
+    paddingHorizontal: H_PAD,
+    paddingTop: 20,
+    paddingBottom: 2,
   },
   chip: {
     backgroundColor: COLORS.lavSoft,
     borderWidth: 1,
     borderColor: COLORS.hair,
-    paddingVertical: 6,
-    paddingHorizontal: 13,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
     borderRadius: 20,
+    minHeight: 36,
+    justifyContent: "center",
   },
   chipText: {
-    fontSize: 12,
+    fontSize: 12.5,
     color: COLORS.text2,
   },
 
-  waveRule: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-    paddingHorizontal: 18,
-    opacity: 0.35,
-  },
-  waveBar: {
-    width: 3,
-    backgroundColor: COLORS.lavDim,
-    borderRadius: 2,
-  },
-
+  /* ---------- generic section + header ---------- */
   rowSec: {
-    paddingTop: 18,
-    paddingBottom: 12,      // was 2
+    marginTop: 30,
   },
   rowHead: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
-    paddingHorizontal: 18,
-    marginTop: 8,
-    marginBottom: 10,
+    paddingHorizontal: H_PAD,
+    marginBottom: 14,
+  },
+  rowHeadText: {
+    flex: 1,
+    minWidth: 0,
   },
   rowTitle: {
-    fontWeight: "600",
-    fontSize: 14.5,
+    fontWeight: "700",
+    fontSize: 18,
+    lineHeight: 24,
     color: COLORS.text1,
-    opacity: 0.92,
+  },
+  rowSubtitle: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: COLORS.text2,
+    marginTop: 2,
   },
   viewAll: {
-    fontSize: 10.5,
-    fontWeight: "600",
+    fontSize: 11.5,
+    fontWeight: "700",
     color: COLORS.lav,
+  },
+  viewAllBtn: {
+    minHeight: 34,
+    minWidth: 64,
+    paddingHorizontal: 14,
+    borderRadius: 17,
     backgroundColor: COLORS.lavSoft,
-    paddingVertical: 5,
-    paddingHorizontal: 11,
-    borderRadius: 14,
-    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
   },
   rowScroll: {
     flexDirection: "row",
-    gap: 14,                // was 12
-    paddingHorizontal: 18,
+    gap: 14,
+    paddingHorizontal: H_PAD,
     paddingBottom: 4,
   },
 
-  /* ---------- grid story card ----------
-   * Uses the shared CARD_W x CARD_H (same as bed cards and
-   * the New Releases carousel). Cover only, no text below.
-   */
+  /* ---------- story card (cover only) ---------- */
   card: {
     width: CARD_W,
+  },
+  cardSquare: {
+    width: SQUARE_SIZE,
   },
   cardCover: {
     width: CARD_W,
     height: CARD_H,
     borderRadius: CARD_RADIUS,
-    marginBottom: 0,
     position: "relative",
     overflow: "hidden",
   },
-  cardTitle: {
-    fontSize: 12.5,
-    fontWeight: "600",
-    color: COLORS.text1,
-    lineHeight: 16,
-    marginBottom: 4,
-  },
-  cardMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  cardNarrator: {
-    fontSize: 10.5,
-    color: COLORS.text3,
-    flexShrink: 1,
-  },
-  cardFoot: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
-  cardFootText: {
-    fontSize: 9.5,
-    color: COLORS.text3,
+  cardCoverSquare: {
+    width: SQUARE_SIZE,
+    height: SQUARE_SIZE,
+    borderRadius: CARD_RADIUS,
+    position: "relative",
+    overflow: "hidden",
   },
 
+  /* ---------- Perfect for Bedtime Stories ---------- */
   bedSection: {
-    marginTop: 24,
-    marginHorizontal: 18,
+    marginTop: 30,
+    marginHorizontal: H_PAD,
     backgroundColor: COLORS.panel,
-    borderRadius: 16,
-    paddingVertical: 12,
+    borderRadius: 20,
+    paddingVertical: 16,
     borderWidth: 1,
     borderColor: COLORS.hair,
     overflow: "hidden",
@@ -561,37 +309,37 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 12,
     marginBottom: 16,
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
   },
   bedRowScroll: {
     flexDirection: "row",
-    gap: 16,                // was 14
-    paddingHorizontal: 18,
+    gap: 14,
+    paddingHorizontal: 16,
     paddingBottom: 4,
   },
   bedIconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: COLORS.lavSoft,
     alignItems: "center",
     justifyContent: "center",
   },
   bedHeaderText: {
     flex: 1,
+    minWidth: 0,
   },
   bedTitle: {
     fontWeight: "700",
-    fontSize: 17,
+    fontSize: 18,
+    lineHeight: 24,
     color: COLORS.text1,
-    marginBottom: 3,
+    marginBottom: 2,
   },
   bedSubtitle: {
     fontSize: 12.5,
     color: COLORS.text2,
   },
-
-  /* Bed card uses the same shared CARD_W x CARD_H. */
   bedCard: {
     width: CARD_W,
   },
@@ -599,24 +347,14 @@ const styles = StyleSheet.create({
     width: CARD_W,
     height: CARD_H,
     borderRadius: CARD_RADIUS,
-    padding: 14,
-    justifyContent: "center",
-    alignItems: "center",
     position: "relative",
     overflow: "hidden",
   },
-  bedCoverTitle: {
-    fontWeight: "700",
-    fontSize: 15,
-    color: "#221a35",
-    textAlign: "center",
-    lineHeight: 20,
-  },
   bedDurationBadge: {
     position: "absolute",
-    right: 8,
+    left: 8,
     bottom: 8,
-    backgroundColor: "rgba(20,16,35,0.55)",
+    backgroundColor: "rgba(20,16,35,0.6)",
     paddingVertical: 4,
     paddingHorizontal: 10,
     borderRadius: 12,
@@ -637,35 +375,38 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     color: COLORS.text3,
   },
+  bedGenreText: {
+    fontSize: 10.5,
+    fontWeight: "600",
+    color: COLORS.lav,
+    marginBottom: 2,
+  },
 
+  /* ---------- authors ---------- */
   tertiary: {
     width: "100%",
-    paddingHorizontal: 18,
-    paddingTop: 20,
-    paddingBottom: 4,
-    opacity: 0.85,
+    paddingHorizontal: H_PAD,
+    marginTop: 30,
   },
   tertiaryHead: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 10,
+    marginBottom: 12,
   },
   tertiaryTitle: {
-    fontSize: 11.5,
-    fontWeight: "600",
-    color: COLORS.text2,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+    fontSize: 18,
+    fontWeight: "700",
+    color: COLORS.text1,
   },
   authorRow: {
     flexDirection: "row",
     gap: 12,
   },
   authorChip: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: COLORS.panel2,
     borderWidth: 1,
     borderColor: COLORS.hair,
@@ -674,21 +415,22 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   authorAvatarImg: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
   },
   authorChipText: {
-    fontSize: 14,
+    fontSize: 15,
     color: COLORS.text2,
   },
 
+  /* ---------- footer ---------- */
   footer: {
     width: "100%",
-    paddingHorizontal: 18,
+    paddingHorizontal: H_PAD,
     paddingTop: 22,
     paddingBottom: 26,
-    marginTop: 14,
+    marginTop: 30,
     borderTopWidth: 1,
     borderTopColor: COLORS.hair,
   },
@@ -706,12 +448,13 @@ const styles = StyleSheet.create({
   },
   socialRow: {
     flexDirection: "row",
-    gap: 8,
+    gap: 6,
   },
+  // 40x40 touch target (was 24x24) so taps register first time.
   social: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: COLORS.panel2,
     borderWidth: 1,
     borderColor: COLORS.hair,
@@ -724,40 +467,23 @@ const styles = StyleSheet.create({
     color: COLORS.text3,
   },
 
+  /* ---------- genres ---------- */
   section: {
-    marginTop: 28,
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontWeight: "600",
-    fontSize: 14.5,
-    color: COLORS.text1,
-    opacity: 0.92,
+    marginTop: 30,
   },
   genreRow: {
     flexDirection: "row",
     gap: 12,
   },
-  genreAvatar: {
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 12,
-    paddingTop: 12,
-  },
   genreIconBox: {
-    width: 100,
-    height: 100,
+    width: GENRE_TILE, // 1:1
+    height: GENRE_TILE,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "",
+    backgroundColor: COLORS.panel2,
     position: "relative",
     overflow: "hidden",
-    borderRadius: 12,
+    borderRadius: 14,
   },
   genreName: {
     position: "absolute",
@@ -765,12 +491,13 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     paddingVertical: 4,
+    paddingHorizontal: 4,
     fontSize: 12,
     fontWeight: "600",
     color: "#FFFFFF",
     textAlign: "center",
     textTransform: "capitalize",
-    backgroundColor: "rgba(0,0,0,0.4)",
+    backgroundColor: "rgba(0,0,0,0.45)",
   },
   primaryGenreText: {
     fontSize: 11,
@@ -778,19 +505,6 @@ const styles = StyleSheet.create({
     color: COLORS.lav,
     marginBottom: 4,
   },
-  bedGenreText: {
-    fontSize: 10.5,
-    fontWeight: "600",
-    color: COLORS.lav,
-    marginBottom: 2,
-  },
-  cardGenreText: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: COLORS.lav,
-    marginBottom: 3,
-  },
-
 });
 
 export default styles;

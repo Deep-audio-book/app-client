@@ -12,7 +12,7 @@
     "authors": "Authors",
     "genres": "Genres",
     "noInternet": "No internet connection. Please check your network and try again.",
-     "all": "All"
+    "all": "All"
   },
   "tabs": {
     "home": "Home",
@@ -22,42 +22,66 @@
     "library": "Library"
   },
   "home": {
-  "audioBook": "Audio book",
-  "explore": "Explore",
-  "continueListening": "Continue listening",
-  "listenNow": "Listen now",
-  "resume": "Resume",
-  "viewAll": "View all",
-  "connectWithUs": "Connect with us",
-  "copyright": "© {{year}} Deep Audiobooks. Stories worth hearing.",
-  "pullingFreshStories": "Pulling fresh stories...",
-  "somethingWentWrong": "Something went wrong. Please try again.",
-  "failedToLoad": "Failed to load explore data",
-  "retry": "Retry",
-  "owned": "Owned",
-  "voice": "Voice: ",
-  "listens": "{{count}} listens",
-  "bedSubtitle": "Soft, slow stories to wind down with",
-  "addToFavorites": "Add to favorites",
-  "removeFromFavorites": "Remove from favorites",
-  "alreadyInCart": "Already in cart",
-  "addToCart": "Add {{title}} to cart",
-  "openStory": "Open {{title}}",
-  "changeLanguage": "Change app language",
-  "openProfile": "Open profile",
-  "viewAllOf": "View all {{title}}",
-  "browseGenre": "Browse {{name}} stories",
-  "openGenre": "Open {{name}}",
-  "openAuthor": "Open {{name}}",
-
-  "modeBuy": "Buy Books",
-  "modeUnlimited": "Unlimited",
-  "unlimitedTag": "Unlimited",
-  "unlimitedBannerTitle": "Listen Unlimited",
-  "unlimitedBannerSubtitle": "Unlimited access to every audiobook",
-  "subscribeNow": "Subscribe Now"
-},
-    "search": {
+        "addToCart": "Add {{title}} to cart",
+        "addToFavorites": "Add to favorites",
+        "alreadyInCart": "Already in cart",
+        "audioBook": "Audio book",
+        "bedSubtitle": "Soft, slow stories to wind down with",
+        "browseGenre": "Browse {{name}} stories",
+        "cartError": "Couldn't add this book to your cart. Please try again.",
+        "cartWithCount": "Open cart, {{count}} items",
+        "changeLanguage": "Change app language",
+        "chapterOf": "Chapter {{current}} of {{total}}",
+        "chapterOpen": "Chapter {{n}}",
+        "chapterShort": "Ch {{n}}",
+        "classicsSubtitle": "Timeless stories, beautifully told",
+        "connectWithUs": "Connect with us",
+        "continueListening": "Continue listening",
+        "copyright": "© {{year}} Deep Audiobooks. Stories worth hearing.",
+        "explore": "Explore",
+        "failedToLoad": "Failed to load explore data",
+        "genres": "Genres",
+        "genresSubtitle": "Pick a mood, find a story",
+        "inCartOpen": "In your cart. Open cart",
+        "journeyTitle": "Your listening journey",
+        "listened": "{{percent}}% listened",
+        "listenNow": "Listen now",
+        "listens": "{{count}} listens",
+        "membershipPoint1": "Unlimited listening to every audiobook",
+        "membershipPoint2": "No need to rent books one by one",
+        "membershipSubtitle": "One plan. Every audiobook.",
+        "membershipTitle": "Go Premium",
+        "modeBuy": "Rent Books",
+        "modeUnlimited": "Premium",
+        "nowChapter": "Now",
+        "openAuthor": "Open {{name}}",
+        "openGenre": "Open {{name}}",
+        "openPremium": "View Premium plan",
+        "openProfile": "Open profile",
+        "openStory": "Open {{title}}",
+        "owned": "Owned",
+        "premium": "Premium",
+        "premiumCtaSubtitle": "Unlimited access to every audiobook",
+        "premiumCtaTitle": "Go Premium",
+        "priceTierSubtitle": "Rent for just {{price}}",
+        "priceTierTitle": "Books at {{price}}",
+        "pullingFreshStories": "Pulling fresh stories...",
+        "removeFromFavorites": "Remove from favorites",
+        "resume": "Resume",
+        "retry": "Retry",
+        "reviewsSubtitle": "What listeners are saying",
+        "seePlans": "See plans",
+        "somethingWentWrong": "Something went wrong. Please try again.",
+        "subscribeNow": "Subscribe Now",
+        "unlimitedBannerSubtitle": "Unlimited access to every audiobook",
+        "unlimitedBannerTitle": "Listen Unlimited",
+        "unlimitedTag": "Unlimited",
+        "viewAll": "View all",
+        "viewAllOf": "View all {{title}}",
+        "visitWebsite": "Visit our website",
+        "voice": "Voice: "
+    },
+  "search": {
     "title": "Search",
     "placeholder": "Titles, narrators, authors, genres",
     "openSearch": "Open search",
@@ -77,8 +101,7 @@
     "somethingWentWrong": "Something went wrong. Please try again.",
     "retry": "Retry",
     "retryLoading": "Retry loading search screen"
-    },
-    
+  },
   "narrator": {
     "headerTitle": "Narrators",
     "defaultRole": "Narrator",
@@ -89,7 +112,7 @@
     "openMenu": "More options for {{name}}",
     "openNarrator": "Open {{name}}"
   },
-   "profile": {
+  "profile": {
     "title": "Profile",
     "closeProfile": "Close profile",
     "defaultName": "there",
@@ -208,20 +231,21 @@
     "retry": "Retry"
   },
   "purchase": {
-  "youOwnThis": "You own this audiobook",
-  "buyThisAudiobook": "Buy this audiobook",
-  "buyNow": "Buy Now",
-  "orChooseHowToListen": "Or choose how you'd like to listen",
-  "listenThisBookOnly": "Listen to this book only",
-  "oneTimeNoSubscription": "One-time listen, no subscription",
-  "listenPriceCta": "{{price}} · Listen now",
-  "listenNow": "Listen now",
-  "listenUnlimited": "Listen Unlimited",
-  "unlimitedSubtitle": "Unlimited access to every audiobook",
-  "unlimitedActive": "You're subscribed",
-  "unlimitedActiveSubtitle": "Enjoy unlimited listening on every audiobook",
-  "subscribeNow": "Subscribe Now"
-},
+    "youOwnThis": "You own this audiobook",
+    "buyThisAudiobook": "Buy this audiobook",
+    "buyNow": "Buy now",
+    "addedToCart": "Added to cart",
+    "orChooseHowToListen": "Or choose how to listen",
+    "listenThisBookOnly": "Listen to this book only",
+    "oneTimeNoSubscription": "One-time payment, no subscription",
+    "listenPriceCta": "Listen for {{price}}",
+    "listenNow": "Listen now",
+    "listenUnlimited": "Listen Unlimited",
+    "unlimitedSubtitle": "Every audiobook, one subscription",
+    "unlimitedActive": "Unlimited is active",
+    "unlimitedActiveSubtitle": "You can listen to every audiobook",
+    "subscribeNow": "Subscribe now"
+  },
   "album": {
     "tabs": {
       "about": "About",
@@ -301,6 +325,27 @@
       "forOfflineMsg_one": "Download {{count}} episode (audio) to listen without internet?",
       "forOfflineMsg_other": "Download {{count}} episodes (audio) to listen without internet?",
       "download": "Download"
+    },
+    "premium": "Premium",
+    "pause": "Pause",
+    "about": {
+      "author": "Author",
+      "narrator": "Narrator / Voice-over",
+      "production": "Production house",
+      "listens": "listens",
+      "viewMore": "View more",
+      "viewLess": "View less",
+      "chaptersTitle": "Chapters ({{count}})",
+      "seeAllChapters": "See all {{count}} chapters",
+      "openChapters": "Open chapters",
+      "free": "FREE",
+      "playFree": "Play free episode",
+      "playFreeSub": "Listen to the first episode before you rent"
+    },
+    "sticky": {
+      "rentNow": "Rent Now",
+      "goToCart": "Go to Cart",
+      "getPremium": "Get Premium"
     }
   },
   "player": {
@@ -324,23 +369,7 @@
     "bookmark": "Bookmark",
     "episodeList": "Episode list"
   },
-  "purchase": {
-  "youOwnThis": "You own this audiobook",
-  "buyThisAudiobook": "Buy this audiobook",
-  "buyNow": "Buy now",
-  "addedToCart": "Added to cart",
-  "orChooseHowToListen": "Or choose how to listen",
-  "listenThisBookOnly": "Listen to this book only",
-  "oneTimeNoSubscription": "One-time payment, no subscription",
-  "listenPriceCta": "Listen for {{price}}",
-  "listenNow": "Listen now",
-  "listenUnlimited": "Listen Unlimited",
-  "unlimitedSubtitle": "Every audiobook, one subscription",
-  "unlimitedActive": "Unlimited is active",
-  "unlimitedActiveSubtitle": "You can listen to every audiobook",
-  "subscribeNow": "Subscribe now"
-},
-   "cart": {
+  "cart": {
     "itemsCount_one": "{{count}} rental",
     "itemsCount_other": "{{count}} rentals",
     "rentalDays_one": "{{count}}-day rental",
@@ -356,7 +385,7 @@
       "timeout": "Request timed out. Check your connection and try again."
     }
   },
-"plans": {
+  "plans": {
     "title": "Choose your plan",
     "subtitle": "Pick what suits you. You can switch plans later.",
     "currentlyOn": "You're on: {{name}}",
@@ -393,9 +422,4 @@
   "monthlyPlanDescription": "Full access for 30 days.",
   "quarterlyPlanDescription": "Full access for 90 days.",
   "annualPlanDescription": "Full access for 365 days."
- 
-
-
-  
-
 }

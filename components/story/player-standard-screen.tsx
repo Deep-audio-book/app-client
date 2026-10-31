@@ -752,6 +752,8 @@ export default function PlayerStandardScreen() {
         params: {
           storyId:
             currentChapter.storyId,
+          // episode-list button -> open the chapter list directly
+          tab: 'chapters',
         },
       });
     } else {

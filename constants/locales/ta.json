@@ -17,41 +17,65 @@
     "library": "நூலகம்"
   },
   "home": {
-  "audioBook": "ஆடியோ புத்தகம்",
-  "explore": "ஆராயுங்கள்",
-  "continueListening": "தொடர்ந்து கேளுங்கள்",
-  "listenNow": "இப்போது கேளுங்கள்",
-  "resume": "தொடரவும்",
-  "viewAll": "அனைத்தையும் காண்க",
-  "connectWithUs": "எங்களுடன் இணையுங்கள்",
-  "copyright": "© {{year}} டீப் ஆடியோபுக்ஸ். கேட்க வேண்டிய கதைகள்.",
-  "pullingFreshStories": "புதிய கதைகளை பெறுகிறது...",
-  "somethingWentWrong": "ஏதோ தவறாகிவிட்டது. மீண்டும் முயற்சிக்கவும்.",
-  "failedToLoad": "தரவை ஏற்ற முடியவில்லை",
-  "retry": "மீண்டும் முயற்சி",
-  "owned": "வைத்திருக்கிறீர்கள்",
-  "voice": "குரல்: ",
-  "listens": "{{count}} கேட்டவர்கள்",
-  "bedSubtitle": "அமைதியாக தூங்க உதவும் மென்மையான கதைகள்",
-  "addToFavorites": "பிடித்தவையில் சேர்க்கவும்",
-  "removeFromFavorites": "பிடித்தவையிலிருந்து நீக்கவும்",
-  "alreadyInCart": "ஏற்கனவே கார்ட்டில் உள்ளது",
-  "addToCart": "{{title}} ஐ கார்ட்டில் சேர்க்கவும்",
-  "openStory": "{{title}} ஐ திற",
-  "changeLanguage": "ஆப் மொழியை மாற்று",
-  "openProfile": "சுயவிவரத்தை திற",
-  "viewAllOf": "{{title}} அனைத்தையும் காண்க",
-  "browseGenre": "{{name}} கதைகளை பார்க்கவும்",
-  "openGenre": "{{name}} ஐ திற",
-  "openAuthor": "{{name}} ஐ திற",
-
-  "modeBuy": "புத்தகங்கள் வாங்கவும்",
-  "modeUnlimited": "அன்லிமிடெட்",
-  "unlimitedTag": "அன்லிமிடெட்",
-  "unlimitedBannerTitle": "வரம்பின்றி கேளுங்கள்",
-  "unlimitedBannerSubtitle": "எல்லா ஆடியோ புத்தகங்களையும் வரம்பின்றி கேட்கலாம்",
-  "subscribeNow": "இப்போது சப்ஸ்கிரைப் செய்யுங்கள்"
-},
+    "audioBook": "ஆடியோ புத்தகம்",
+    "explore": "ஆராயுங்கள்",
+    "continueListening": "தொடர்ந்து கேளுங்கள்",
+    "listenNow": "இப்போது கேளுங்கள்",
+    "resume": "தொடரவும்",
+    "viewAll": "அனைத்தையும் காண்க",
+    "connectWithUs": "எங்களுடன் இணையுங்கள்",
+    "copyright": "© {{year}} டீப் ஆடியோபுக்ஸ். கேட்க வேண்டிய கதைகள்.",
+    "pullingFreshStories": "புதிய கதைகளை பெறுகிறது...",
+    "somethingWentWrong": "ஏதோ தவறாகிவிட்டது. மீண்டும் முயற்சிக்கவும்.",
+    "failedToLoad": "தரவை ஏற்ற முடியவில்லை",
+    "retry": "மீண்டும் முயற்சி",
+    "owned": "வைத்திருக்கிறீர்கள்",
+    "voice": "குரல்: ",
+    "listens": "{{count}} கேட்டவர்கள்",
+    "bedSubtitle": "அமைதியாக தூங்க உதவும் மென்மையான கதைகள்",
+    "addToFavorites": "பிடித்தவையில் சேர்க்கவும்",
+    "removeFromFavorites": "பிடித்தவையிலிருந்து நீக்கவும்",
+    "alreadyInCart": "ஏற்கனவே கார்ட்டில் உள்ளது",
+    "addToCart": "{{title}} ஐ கார்ட்டில் சேர்க்கவும்",
+    "openStory": "{{title}} ஐ திற",
+    "changeLanguage": "ஆப் மொழியை மாற்று",
+    "openProfile": "சுயவிவரத்தை திற",
+    "viewAllOf": "{{title}} அனைத்தையும் காண்க",
+    "browseGenre": "{{name}} கதைகளை பார்க்கவும்",
+    "openGenre": "{{name}} ஐ திற",
+    "openAuthor": "{{name}} ஐ திற",
+    "modeBuy": "புத்தகங்கள் வாடகைக்கு",
+    "modeUnlimited": "பிரீமியம்",
+    "unlimitedTag": "அன்லிமிடெட்",
+    "unlimitedBannerTitle": "வரம்பின்றி கேளுங்கள்",
+    "unlimitedBannerSubtitle": "எல்லா ஆடியோ புத்தகங்களையும் வரம்பின்றி கேட்கலாம்",
+    "subscribeNow": "இப்போது சப்ஸ்கிரைப் செய்யுங்கள்",
+    "premium": "பிரீமியம்",
+    "openPremium": "பிரீமியம் திட்டத்தைப் பார்க்கவும்",
+    "cartWithCount": "கார்ட்டைத் திற, {{count}} பொருட்கள்",
+    "cartError": "இந்தப் புத்தகத்தை கார்ட்டில் சேர்க்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
+    "inCartOpen": "கார்ட்டில் உள்ளது. கார்ட்டைத் திற",
+    "journeyTitle": "உங்கள் கேட்கும் பயணம்",
+    "chapterOf": "அத்தியாயம் {{current}} / {{total}}",
+    "chapterShort": "அ {{n}}",
+    "chapterOpen": "அத்தியாயம் {{n}}",
+    "nowChapter": "இப்போது",
+    "listened": "{{percent}}% கேட்டீர்கள்",
+    "genres": "வகைகள்",
+    "genresSubtitle": "மனநிலையைத் தேர்ந்தெடுங்கள், கதையைக் கண்டறியுங்கள்",
+    "classicsSubtitle": "காலத்தால் அழியாத கதைகள்",
+    "reviewsSubtitle": "கேட்டவர்கள் சொல்வது",
+    "priceTierTitle": "{{price}} புத்தகங்கள்",
+    "priceTierSubtitle": "வெறும் {{price}}க்கு வாடகைக்கு",
+    "membershipTitle": "பிரீமியம் ஆகுங்கள்",
+    "membershipSubtitle": "ஒரே திட்டம். எல்லா ஆடியோ புத்தகங்களும்.",
+    "membershipPoint1": "எல்லா ஆடியோ புத்தகங்களையும் வரம்பின்றி கேளுங்கள்",
+    "membershipPoint2": "புத்தகங்களை ஒவ்வொன்றாக வாடகைக்கு எடுக்க வேண்டாம்",
+    "seePlans": "திட்டங்களைப் பார்க்கவும்",
+    "premiumCtaTitle": "பிரீமியம் ஆகுங்கள்",
+    "premiumCtaSubtitle": "எல்லா ஆடியோ புத்தகங்களுக்கும் வரம்பற்ற அணுகல்",
+    "visitWebsite": "எங்கள் இணையதளத்தைப் பார்க்கவும்"
+  },
   "search": {
     "title": "தேடல்",
     "placeholder": "தலைப்புகள், குரல் கலைஞர்கள், ஆசிரியர்கள், வகைகள்",
@@ -73,7 +97,6 @@
     "retry": "மீண்டும் முயற்சி",
     "retryLoading": "தேடல் திரையை மீண்டும் ஏற்று"
   },
-  
   "narrator": {
     "headerTitle": "குரல் கலைஞர்கள்",
     "defaultRole": "குரல் கலைஞர்",
@@ -84,7 +107,7 @@
     "openMenu": "{{name}} க்கான மேலும் விருப்பங்கள்",
     "openNarrator": "{{name}} ஐ திற"
   },
-    "profile": {
+  "profile": {
     "title": "சுயவிவரம்",
     "closeProfile": "சுயவிவரத்தை மூடு",
     "defaultName": "நண்பரே",
@@ -191,7 +214,6 @@
       }
     }
   },
-
   "favorites": {
     "title": "பிடித்தவை",
     "titles": "தலைப்புகள்",
@@ -201,24 +223,25 @@
     "removeFromFavorites": "பிடித்தவையிலிருந்து நீக்கவும்",
     "failedToLoad": "பிடித்தவை திரையை ஏற்ற முடியவில்லை",
     "somethingWentWrong": "ஏதோ தவறாகிவிட்டது. மீண்டும் முயற்சிக்கவும்.",
-    "retry": "மீண்டும் முயற்சி" 
+    "retry": "மீண்டும் முயற்சி"
   },
   "purchase": {
-  "youOwnThis": "இந்த ஆடியோ புத்தகம் உங்களிடம் உள்ளது",
-  "buyThisAudiobook": "இந்த ஆடியோ புத்தகத்தை வாங்குங்கள்",
-  "buyNow": "இப்போது வாங்கவும்",
-  "orChooseHowToListen": "அல்லது எப்படி கேட்க வேண்டும் என்று தேர்வு செய்யுங்கள்",
-  "listenThisBookOnly": "இந்த புத்தகத்தை மட்டும் கேளுங்கள்",
-  "oneTimeNoSubscription": "ஒரு முறை கேட்க, சப்ஸ்கிரிப்ஷன் தேவையில்லை",
-  "listenPriceCta": "{{price}} · இப்போது கேளுங்கள்",
-  "listenNow": "இப்போது கேளுங்கள்",
-  "listenUnlimited": "வரம்பின்றி கேளுங்கள்",
-  "unlimitedSubtitle": "எல்லா ஆடியோ புத்தகங்களையும் வரம்பின்றி கேட்கலாம்",
-  "unlimitedActive": "நீங்கள் சப்ஸ்கிரைப் செய்துள்ளீர்கள்",
-  "unlimitedActiveSubtitle": "எல்லா ஆடியோ புத்தகங்களையும் வரம்பின்றி அனுபவியுங்கள்",
-  "subscribeNow": "இப்போது சப்ஸ்கிரைப் செய்யுங்கள்"
-},
-"album": {
+    "youOwnThis": "இந்த ஆடியோ புத்தகம் உங்களுடையது",
+    "buyThisAudiobook": "இந்த ஆடியோ புத்தகத்தை வாங்குங்கள்",
+    "buyNow": "இப்போது வாங்கவும்",
+    "addedToCart": "கார்ட்டில் சேர்க்கப்பட்டது",
+    "orChooseHowToListen": "அல்லது எப்படி கேட்க வேண்டும் என்று தேர்வு செய்யுங்கள்",
+    "listenThisBookOnly": "இந்தப் புத்தகத்தை மட்டும் கேளுங்கள்",
+    "oneTimeNoSubscription": "ஒருமுறை கட்டணம், சந்தா இல்லை",
+    "listenPriceCta": "{{price}} க்கு கேளுங்கள்",
+    "listenNow": "இப்போது கேளுங்கள்",
+    "listenUnlimited": "வரம்பின்றி கேளுங்கள்",
+    "unlimitedSubtitle": "எல்லா ஆடியோ புத்தகங்களும், ஒரே சந்தா",
+    "unlimitedActive": "வரம்பற்ற சந்தா செயலில் உள்ளது",
+    "unlimitedActiveSubtitle": "எல்லா ஆடியோ புத்தகங்களையும் கேட்கலாம்",
+    "subscribeNow": "இப்போது சப்ஸ்கிரைப் செய்யுங்கள்"
+  },
+  "album": {
     "tabs": {
       "about": "கதையைப் பற்றி",
       "chapters": "பகுதிகள்",
@@ -297,6 +320,27 @@
       "forOfflineMsg_one": "இணையம் இல்லாமல் கேட்க {{count}} பகுதியை (ஆடியோ) பதிவிறக்கவா?",
       "forOfflineMsg_other": "இணையம் இல்லாமல் கேட்க {{count}} பகுதிகளை (ஆடியோ) பதிவிறக்கவா?",
       "download": "பதிவிறக்கு"
+    },
+    "premium": "பிரீமியம்",
+    "pause": "இடைநிறுத்து",
+    "about": {
+      "author": "எழுத்தாளர்",
+      "narrator": "குரல் கலைஞர்",
+      "production": "தயாரிப்பு நிறுவனம்",
+      "listens": "முறை கேட்கப்பட்டது",
+      "viewMore": "மேலும் பார்க்க",
+      "viewLess": "குறைவாகக் காட்டு",
+      "chaptersTitle": "பகுதிகள் ({{count}})",
+      "seeAllChapters": "அனைத்து {{count}} பகுதிகளையும் பார்க்க",
+      "openChapters": "பகுதிகளைத் திற",
+      "free": "இலவசம்",
+      "playFree": "இலவசப் பகுதியை இயக்கு",
+      "playFreeSub": "வாடகைக்கு எடுக்கும் முன் முதல் பகுதியைக் கேளுங்கள்"
+    },
+    "sticky": {
+      "rentNow": "வாடகைக்கு எடு",
+      "goToCart": "கார்ட்டுக்குச் செல்",
+      "getPremium": "பிரீமியம் பெறுக"
     }
   },
   "player": {
@@ -320,23 +364,7 @@
     "bookmark": "புக்மார்க்",
     "episodeList": "பகுதிகள் பட்டியல்"
   },
-  "purchase": {
-  "youOwnThis": "இந்த ஆடியோ புத்தகம் உங்களுடையது",
-  "buyThisAudiobook": "இந்த ஆடியோ புத்தகத்தை வாங்குங்கள்",
-  "buyNow": "இப்போது வாங்கவும்",
-  "addedToCart": "கார்ட்டில் சேர்க்கப்பட்டது",
-  "orChooseHowToListen": "அல்லது எப்படி கேட்க வேண்டும் என்று தேர்வு செய்யுங்கள்",
-  "listenThisBookOnly": "இந்தப் புத்தகத்தை மட்டும் கேளுங்கள்",
-  "oneTimeNoSubscription": "ஒருமுறை கட்டணம், சந்தா இல்லை",
-  "listenPriceCta": "{{price}} க்கு கேளுங்கள்",
-  "listenNow": "இப்போது கேளுங்கள்",
-  "listenUnlimited": "வரம்பின்றி கேளுங்கள்",
-  "unlimitedSubtitle": "எல்லா ஆடியோ புத்தகங்களும், ஒரே சந்தா",
-  "unlimitedActive": "வரம்பற்ற சந்தா செயலில் உள்ளது",
-  "unlimitedActiveSubtitle": "எல்லா ஆடியோ புத்தகங்களையும் கேட்கலாம்",
-  "subscribeNow": "இப்போது சப்ஸ்கிரைப் செய்யுங்கள்"
-},
-   "cart": {
+  "cart": {
     "itemsCount_one": "{{count}} வாடகை",
     "itemsCount_other": "{{count}} வாடகைகள்",
     "rentalDays_one": "{{count}} நாள் வாடகை",
@@ -352,7 +380,7 @@
       "timeout": "கோரிக்கைக்கு நேரம் முடிந்தது. இணைப்பை சரிபார்த்து மீண்டும் முயற்சிக்கவும்."
     }
   },
-"plans": {
+  "plans": {
     "title": "உங்கள் திட்டத்தைத் தேர்ந்தெடுக்கவும்",
     "subtitle": "உங்களுக்கு ஏற்றதைத் தேர்ந்தெடுங்கள். பின்னர் திட்டத்தை மாற்றலாம்.",
     "currentlyOn": "தற்போதைய திட்டம்: {{name}}",
@@ -389,9 +417,4 @@
   "monthlyPlanDescription": "30 நாட்களுக்கு முழு அணுகல்.",
   "quarterlyPlanDescription": "90 நாட்களுக்கு முழு அணுகல்.",
   "annualPlanDescription": "365 நாட்களுக்கு முழு அணுகல்."
-
-
-
-
-
 }

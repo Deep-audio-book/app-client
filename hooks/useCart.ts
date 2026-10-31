@@ -2,20 +2,34 @@ import i18n from "i18next";
 import { useCallback, useRef, useState } from "react";
 
 import { CartItem, fetchCart, removeCartItem } from "../api/Cart";
+import { useCartBadge } from "./useCartBadge";
 
 const message = (e: unknown, fallbackKey: string) =>
   e instanceof Error ? e.message : i18n.t(fallbackKey);
+
+/**
+ * Cart items are kept here, outside the component, so opening the Cart
+ * screen again shows the items INSTANTLY (no spinner / empty flash). The
+ * list is still re-checked silently in the background every time.
+ * Call resetCartCache() on logout so the next user never sees old items.
+ */
+let cachedItems: CartItem[] | null = null;
+
+export function resetCartCache() {
+  cachedItems = null;
+  useCartBadge.getState().reset();
+}
 
 /**
  * Rental cart. Removing a rental updates the UI immediately and rolls back
  * (with an error message) if the backend call fails.
  */
 export function useCart() {
-  const [items, setItems] = useState<CartItem[]>([]);
-  const itemsRef = useRef<CartItem[]>([]);
-  const loadedOnce = useRef(false);
+  const [items, setItems] = useState<CartItem[]>(cachedItems ?? []);
+  const itemsRef = useRef<CartItem[]>(cachedItems ?? []);
+  const loadedOnce = useRef(cachedItems !== null);
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(cachedItems === null);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -23,7 +37,9 @@ export function useCart() {
 
   const apply = useCallback((next: CartItem[]) => {
     itemsRef.current = next;
+    cachedItems = next;
     setItems(next);
+    useCartBadge.getState().setFromItems(next); // keep the badge in sync
   }, []);
 
   const setBusy = useCallback((id: string, on: boolean) => {
@@ -35,7 +51,7 @@ export function useCart() {
     });
   }, []);
 
-  /** Spinner only on the very first load; later reloads are silent. */
+  /** Spinner only when there is nothing to show yet; later reloads are silent. */
   const reload = useCallback(async () => {
     if (!loadedOnce.current) setLoading(true);
     setLoadError(null);

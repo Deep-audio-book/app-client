@@ -224,6 +224,9 @@ export default function TabLayout() {
         />
       )}
       screenOptions={{ headerShown: false }}
+      // Default is 'firstRoute': back from ANY page jumped to Home.
+      // 'history' = back returns to the page the user came from.
+      backBehavior="history"
     >
       <Tabs.Screen name="home" />
       <Tabs.Screen name="search" />
