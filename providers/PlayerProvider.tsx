@@ -12,8 +12,11 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { useRouter } from "expo-router";
 import { Animated, AppState } from "react-native";
+import EpisodePaywallModal from "../components/story/EpisodePaywallModal";
 import { useDispatch, useSelector } from "react-redux";
+import { PLAYER_CONFIG } from "../constants/playerConfig";
 import { useLiveWaveform } from "../hooks/useLiveWaveform";
 
 import {
@@ -47,6 +50,8 @@ export type PlayerChapter = {
   video_status: number;
   cover: string | null;
   free: boolean;
+  // true when the user has not rented / bought / subscribed and this is a paid episode
+  locked?: boolean;
   // Chapters returned by the API don't carry a "story" field, only the
   // parent StoryDetail has a title. The player screen shows it as a small
   // label, so the caller (AlbumScreen) injects it before setChapters().
@@ -55,6 +60,14 @@ export type PlayerChapter = {
   storyId?: string;
   // Story cover, used as fallback artwork when a chapter has no cover.
   storyCover?: string | null;
+};
+
+/** Shown when a free episode ends and the next one is locked. */
+export type PaywallInfo = {
+  storyId: string | null;
+  storyTitle: string;
+  nextChapterTitle: string;
+  cover: string | null;
 };
 
 export type PlayerStory = {
@@ -270,6 +283,29 @@ type PlayerContextValue = {
 
   closePlayer: () => void;
 
+  /** Hard stop: pause + release audio/video and clear the queue (used on logout). */
+  stopAndReset: () => void;
+
+  // ---- free episode ended -> rent / Premium prompt ----
+  paywall: PaywallInfo | null;
+  dismissPaywall: () => void;
+
+  /** Opens the full player screen (once - never stacks a second copy). */
+  openPlayerScreen: () => void;
+
+  // ---- playback speed ----
+  playbackRate: number;
+  setPlaybackRate: (rate: number) => void;
+
+  // ---- sleep timer ----
+  /** Minutes the timer was set to, or null when it is off. */
+  sleepTimerMinutes: number | null;
+  /** Seconds left on the timer, or 0 when off. */
+  sleepTimerRemaining: number;
+  setSleepTimer: (minutes: number | null) => void;
+  /** Cycles Off -> 15 -> 30 -> 45 -> 60 -> Off. */
+  toggleSleepTimer: () => void;
+
   // ---- live waveform (real audio loudness) ----
   audioLevel: Animated.Value;
   liveLevelAvailable: boolean;
@@ -363,6 +399,20 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const [showVideoControls, setShowVideoControls] = useState(true);
 
+  // playback speed (applies to audio and video, survives chapter changes)
+  const [playbackRate, setPlaybackRateState] = useState(1);
+  const playbackRateRef = useRef(1);
+
+  // sleep timer
+  const [sleepTimerMinutes, setSleepTimerMinutes] = useState<number | null>(null);
+  const [sleepTimerRemaining, setSleepTimerRemaining] = useState(0);
+  const sleepTimeoutRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sleepEndsAtRef = useRef(0);
+
+  // who is logged in (used to stop playback on logout)
+  const authUser = useSelector((s: RootState) => s.auth.user);
+  const prevAuthUserRef = useRef(authUser);
+
   /* =======================================================
      REFS
   ======================================================= */
@@ -386,6 +436,17 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const durationRef = useRef(duration);
 
   const busyRef = useRef(false);
+
+  // latest chapter index for listeners that were created earlier
+  const chapterIndexRef = useRef(chapterIndex);
+  chapterIndexRef.current = chapterIndex;
+
+  // end-of-episode handling
+  const lastEndAtRef = useRef(0);
+  const oneShotRef = useRef<AudioPlayer | null>(null);
+  const [paywall, setPaywall] = useState<PaywallInfo | null>(null);
+  const playerScreenOpen = useSelector((st: RootState) => st.player.isExpanded);
+  const router = useRouter();
 
   // true only while audio <-> video toggle is running.
   // The video status listener must NOT set mode / auto-play during that time,
@@ -451,8 +512,16 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
      VIDEO PLAYER
   ======================================================= */
 
+  // PERFORMANCE: the video is NOT loaded together with the chapter any more.
+  // Before, every chapter that had a video also started downloading/decoding
+  // it while the person was only listening to the audio, which slowed down
+  // loading and made the player hang. The video is now loaded
+  //   - when the person switches to video, or
+  //   - quietly ~3s after the audio is playing (so switching stays fast).
+  const videoLoadedForRef = useRef<string | null>(null);
+
   const videoPlayer = useVideoPlayer(
-    currentChapter?.video_url ?? null,
+    null,
     (player) => {
       player.loop = false;
       player.volume = 1.0;
@@ -480,6 +549,27 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       (status: AudioStatus) => {
         // an old player must never write into redux
         if (audioPlayerRef.current !== player) {
+          return;
+        }
+
+        // the episode reached its end.
+        // `didJustFinish` is not sent on every device / file type, so also
+        // treat "stopped within the last 0.7s of a known duration while we
+        // were playing" as finished.
+        const endDuration = status.duration ?? 0;
+        const endTime = status.currentTime ?? 0;
+
+        const reachedEnd =
+          endDuration > 1 &&
+          endTime >= endDuration - 0.7 &&
+          !status.playing &&
+          !(status as any).isBuffering &&
+          isPlayingRef.current;
+
+        if ((status as any).didJustFinish || reachedEnd) {
+          // show the bar as completed, then move on
+          dispatch(setElapsed(endDuration > 0 ? endDuration : endTime));
+          handleChapterEnded();
           return;
         }
 
@@ -514,6 +604,274 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   };
 
   /* =======================================================
+     PLAYBACK SPEED
+  ======================================================= */
+
+  const applyRateToAudio = (player: AudioPlayer) => {
+    try {
+      player.setPlaybackRate(playbackRateRef.current);
+    } catch (e) {
+      console.log("setPlaybackRate (audio) failed:", e);
+    }
+  };
+
+  const applyRateToVideo = () => {
+    try {
+      (videoPlayer as any).playbackRate = playbackRateRef.current;
+    } catch (e) {
+      console.log("playbackRate (video) failed:", e);
+    }
+  };
+
+  const setPlaybackRate = (rate: number) => {
+    playbackRateRef.current = rate;
+    setPlaybackRateState(rate);
+
+    if (audioPlayerRef.current) applyRateToAudio(audioPlayerRef.current);
+    applyRateToVideo();
+  };
+
+  /* =======================================================
+     PAUSE EVERYTHING (shared by sleep timer + stop)
+  ======================================================= */
+
+  const pauseAll = () => {
+    try {
+      videoPlayer.pause();
+    } catch {}
+
+    try {
+      audioPlayerRef.current?.pause();
+    } catch {}
+
+    dispatch(setIsPlaying(false));
+  };
+
+  /* =======================================================
+     SLEEP TIMER
+  ======================================================= */
+
+  const clearSleepTimer = () => {
+    if (sleepTimeoutRef.current) {
+      clearInterval(sleepTimeoutRef.current);
+      sleepTimeoutRef.current = null;
+    }
+
+    sleepEndsAtRef.current = 0;
+    setSleepTimerMinutes(null);
+    setSleepTimerRemaining(0);
+  };
+
+  const setSleepTimer = (minutes: number | null) => {
+    if (sleepTimeoutRef.current) {
+      clearInterval(sleepTimeoutRef.current);
+      sleepTimeoutRef.current = null;
+    }
+
+    if (!minutes || minutes <= 0) {
+      clearSleepTimer();
+      return;
+    }
+
+    sleepEndsAtRef.current = Date.now() + minutes * 60 * 1000;
+    setSleepTimerMinutes(minutes);
+    setSleepTimerRemaining(minutes * 60);
+
+    // one-second tick: updates the countdown and pauses when it reaches 0
+    sleepTimeoutRef.current = setInterval(() => {
+      const left = Math.max(
+        0,
+        Math.round((sleepEndsAtRef.current - Date.now()) / 1000)
+      );
+
+      setSleepTimerRemaining(left);
+
+      if (left <= 0) {
+        pauseAll();
+        clearSleepTimer();
+      }
+    }, 1000);
+  };
+
+  const SLEEP_OPTIONS: (number | null)[] = [null, 15, 30, 45, 60];
+
+  const toggleSleepTimer = () => {
+    const idx = SLEEP_OPTIONS.indexOf(sleepTimerMinutes);
+    setSleepTimer(SLEEP_OPTIONS[(idx + 1) % SLEEP_OPTIONS.length]);
+  };
+
+  /* =======================================================
+     END OF EPISODE
+       - next episode unlocked  -> play it (AUTO_PLAY_NEXT)
+       - next episode locked    -> pause + rent / Premium prompt
+                                   (+ optional paywall voice message)
+       - last episode           -> optional customised voice-over ending
+  ======================================================= */
+
+  const stopOneShot = () => {
+    if (oneShotRef.current) {
+      try {
+        oneShotRef.current.pause();
+        oneShotRef.current.remove();
+      } catch {}
+
+      oneShotRef.current = null;
+    }
+  };
+
+  // plays a short voice clip (paywall message / ending) once
+  const playOneShot = (url: string) => {
+    if (!url) return;
+
+    stopOneShot();
+
+    try {
+      const clip = createAudioPlayer(url);
+      oneShotRef.current = clip;
+      clip.volume = 1.0;
+
+      const sub = clip.addListener(
+        "playbackStatusUpdate",
+        (status: AudioStatus) => {
+          if ((status as any).didJustFinish) {
+            sub.remove();
+
+            if (oneShotRef.current === clip) {
+              try {
+                clip.remove();
+              } catch {}
+
+              oneShotRef.current = null;
+            }
+          }
+        }
+      );
+
+      clip.play();
+    } catch (error) {
+      console.log("Voice clip failed:", error);
+    }
+  };
+
+  const isChapterLocked = (chapter?: PlayerChapter | null) => {
+    if (!chapter) return false;
+    if (typeof chapter.locked === "boolean") return chapter.locked;
+
+    // fallback: a paid episode without any playable file
+    return (
+      !chapter.free &&
+      !hasPlayableAudio(chapter) &&
+      !hasPlayableVideo(chapter)
+    );
+  };
+
+  const showPaywallFor = (next: PlayerChapter) => {
+    pauseAll();
+
+    setPaywall({
+      storyId: next.storyId ?? null,
+      storyTitle: next.story ?? "",
+      nextChapterTitle: next.title,
+      cover: next.storyCover ?? next.cover ?? null,
+    });
+
+    playOneShot(PLAYER_CONFIG.PAYWALL_AUDIO_URL);
+  };
+
+  // One entry point to open the full player. `navigate` (not `push`) goes
+  // back to the player screen if it is already in the stack instead of
+  // stacking a second hidden copy. `isExpanded` is set by the player screen
+  // itself when it gets focus (see player-standard-screen), so it can never
+  // stay "true" while the screen is closed.
+  const openPlayerScreen = () => {
+    router.navigate("/player-standard" as any);
+  };
+
+  const dismissPaywall = () => {
+    stopOneShot();
+    setPaywall(null);
+  };
+
+  function handleChapterEnded() {
+    // audio + video can both report "finished": handle it once
+    const now = Date.now();
+    if (now - lastEndAtRef.current < 1500) return;
+    lastEndAtRef.current = now;
+
+    const list = chaptersRef.current;
+    const index = chapterIndexRef.current;
+    const next = list[index + 1];
+
+    if (__DEV__) {
+      console.log(
+        "[player] episode ended:",
+        index + 1,
+        "/",
+        list.length,
+        "| next:",
+        next ? next.title : "none",
+        "| locked:",
+        next ? isChapterLocked(next) : "-"
+      );
+    }
+
+    // last episode of the book
+    if (!next) {
+      dispatch(setIsPlaying(false));
+      playOneShot(PLAYER_CONFIG.CUSTOM_ENDING_AUDIO_URL);
+      return;
+    }
+
+    // next episode is paid and not unlocked -> rent / Premium prompt
+    if (isChapterLocked(next)) {
+      showPaywallFor(next);
+      return;
+    }
+
+    if (PLAYER_CONFIG.AUTO_PLAY_NEXT) {
+      playChapterAt(index + 1, { autoPlay: true });
+    } else {
+      dispatch(setIsPlaying(false));
+    }
+  }
+
+  /* =======================================================
+     LOCK SCREEN / NOTIFICATION PLAYER
+     Shows title, cover and play / pause (+ 15s back / forward) on the lock
+     screen, Control Centre and the Android notification, so the person can
+     control the audio without opening the app. Needs the background-audio
+     setup in app.json (see BACKGROUND_AUDIO_SETUP.md) and a development /
+     production build (Expo Go has no native media session).
+  ======================================================= */
+
+  const activateLockScreen = (player: AudioPlayer, chapter?: PlayerChapter | null) => {
+    if (!chapter) return;
+
+    try {
+      const artwork = chapter.cover || chapter.storyCover || undefined;
+
+      player.setActiveForLockScreen(
+        true,
+        {
+          title: chapter.title,
+          artist: chapter.story ?? "",
+          albumTitle: chapter.story ?? "",
+          artworkUrl: artwork ?? undefined,
+        },
+        { showSeekBackward: true, showSeekForward: true }
+      );
+    } catch (error) {
+      console.log("Lock screen controls failed:", error);
+    }
+  };
+
+  const clearLockScreen = () => {
+    try {
+      audioPlayerRef.current?.clearLockScreenControls();
+    } catch {}
+  };
+
+  /* =======================================================
      GET AUDIO PLAYER
   ======================================================= */
 
@@ -531,6 +889,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       // lower than 1.0 (especially right after a duckOthers session), which
       // made playback sound very quiet. Force full volume explicitly.
       player.volume = 1.0;
+      applyRateToAudio(player);
+      activateLockScreen(player, currentChapter);
 
       // start reading real audio levels for the waveform
       waveform.attach(player);
@@ -566,7 +926,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setAudioModeAsync({
       playsInSilentMode: true,
       shouldPlayInBackground: true,
-      interruptionMode: "mixWithOthers",
+      // iOS only shows the lock-screen / Control Centre player for an audio
+      // session that does not mix with others (like Spotify / Audible).
+      interruptionMode: "doNotMix",
+      interruptionModeAndroid: "doNotMix",
     }).catch((error) => {
       console.log("Audio mode config failed:", error);
     });
@@ -663,6 +1026,60 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapterIndex, chapterHasVideo, chapterHasAudio]);
+
+  /* =======================================================
+     QUIET VIDEO PRE-LOAD
+     Chapter has audio AND video: a few seconds after the audio is
+     playing, load the video in the background so switching is instant.
+  ======================================================= */
+
+  useEffect(() => {
+    if (!currentChapter?.video_url) return;
+    if (!chapterHasVideo || !chapterHasAudio) return;
+    if (mode !== "audio" || !isPlaying) return;
+
+    const id = String(currentChapter.id);
+
+    if (videoLoadedForRef.current === id) return;
+
+    const timer = setTimeout(async () => {
+      if (busyRef.current || togglingRef.current) return;
+      if (videoLoadedForRef.current === id) return;
+
+      try {
+        videoLoadedForRef.current = id;
+
+        await videoPlayer.replaceAsync(currentChapter.video_url as string);
+
+        // loaded only to be ready: it must not start by itself
+        if (modeRef.current === "audio") {
+          videoPlayer.pause();
+        }
+      } catch {
+        videoLoadedForRef.current = null;
+      }
+    }, 3000);
+
+    return () => clearTimeout(timer);
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentChapter?.id, chapterHasVideo, chapterHasAudio, mode, isPlaying]);
+
+  /* =======================================================
+     VIDEO ENDED
+  ======================================================= */
+
+  useEffect(() => {
+    const sub = videoPlayer.addListener("playToEnd", () => {
+      if (modeRef.current === "video") {
+        handleChapterEnded();
+      }
+    });
+
+    return () => sub.remove();
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoPlayer]);
 
   /* =======================================================
      VIDEO PROGRESS
@@ -890,12 +1307,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
             throw new Error("Video URL missing");
           }
 
-          // useVideoPlayer already loaded this URL. Reload only if it
-          // is not usable (saves time + avoids a second readyToPlay).
+          // already pre-loaded for THIS chapter? then reuse it (instant),
+          // otherwise load it now.
           if (
+            videoLoadedForRef.current !== String(currentChapter.id) ||
             videoPlayer.status === "error" ||
             videoPlayer.status === "idle"
           ) {
+            videoLoadedForRef.current = String(currentChapter.id);
             await videoPlayer.replaceAsync(currentChapter.video_url);
           }
 
@@ -1023,6 +1442,17 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
     busyRef.current = true;
 
+    // a new episode starts: a seek that never finished (old player) must not
+    // keep blocking the progress updates of the new one
+    isSeekingRef.current = false;
+    setIsSeeking(false);
+    pendingSeekRef.current = null;
+
+    // close the prompt / stop any voice clip
+    lastEndAtRef.current = 0;
+    stopOneShot();
+    setPaywall(null);
+
     try {
       const clamped = clampValue(nextIndex, 0, availableChapters.length - 1);
 
@@ -1047,11 +1477,19 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
       pendingSeekRef.current = null;
 
-      /* STOP OLD VIDEO */
+      /* STOP OLD VIDEO (and release it, so it stops buffering) */
 
       try {
         videoPlayer.pause();
       } catch {}
+
+      if (videoLoadedForRef.current) {
+        videoLoadedForRef.current = null;
+
+        try {
+          videoPlayer.replaceAsync(null as any).catch(() => {});
+        } catch {}
+      }
 
       /* STOP OLD AUDIO */
 
@@ -1099,12 +1537,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
             throw new Error("Video URL missing");
           }
 
+          videoLoadedForRef.current = String(nextChapter.id);
           await videoPlayer.replaceAsync(nextChapter.video_url);
 
           await waitForVideoReady(videoPlayer);
 
           if (videoPlayer.status === "readyToPlay") {
             dispatch(setMode("video"));
+            applyRateToVideo();
 
             const videoDuration = videoPlayer.duration ?? 0;
 
@@ -1148,6 +1588,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           const player = createAudioPlayer(nextChapter.audio_url);
 
           player.volume = 1.0;
+          applyRateToAudio(player);
+          activateLockScreen(player, nextChapter);
 
           audioPlayerRef.current = player;
 
@@ -1156,6 +1598,28 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
           // feed progress into redux (mini player + player screen)
           attachAudioStatus(player);
+
+          // PERFORMANCE: when there is no resume position, do not wait for
+          // the file to finish loading - start immediately, the player
+          // begins as soon as the first data arrives and the status listener
+          // corrects the duration. (A resume position needs the file loaded.)
+          const needsSeek = !!(opts?.startAt && opts.startAt > 5);
+
+          if (!needsSeek) {
+            // placeholder until the file reports its real duration; ignore
+            // a missing / wrong value so the bar can never start "full"
+            const knownDuration = Number(nextChapter.duration_in_seconds);
+
+            dispatch(setDuration(knownDuration > 0 ? knownDuration : 0));
+
+            if (shouldAutoPlay) {
+              player.play();
+
+              dispatch(setIsPlaying(true));
+            }
+
+            return;
+          }
 
           await waitForAudioReady(player);
 
@@ -1207,7 +1671,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    playChapterAt(chapterIndex - 1);
+    playChapterAt(chapterIndex - 1, { autoPlay: true });
   };
 
   /* =======================================================
@@ -1219,7 +1683,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    playChapterAt(chapterIndex + 1);
+    const next = chaptersRef.current[chapterIndex + 1];
+
+    // locked episode: show the rent / Premium prompt instead of failing
+    if (isChapterLocked(next)) {
+      showPaywallFor(next);
+      return;
+    }
+
+    playChapterAt(chapterIndex + 1, { autoPlay: true });
   };
 
   /* =======================================================
@@ -1333,6 +1805,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const closePlayer = () => {
     pendingSeekRef.current = null;
 
+    // remove the lock-screen / notification player
+    clearLockScreen();
+
     try {
       videoPlayer.pause();
     } catch {}
@@ -1347,6 +1822,69 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
     dispatch(setIsActive(false));
   };
+
+  /* =======================================================
+     STOP AND RESET (logout)
+     Pauses, releases the audio player and clears the queue so
+     nothing can keep playing after the user signs out.
+  ======================================================= */
+
+  const stopAndReset = () => {
+    pendingSeekRef.current = null;
+    autoPlayNextRef.current = false;
+
+    clearSleepTimer();
+    stopOneShot();
+    setPaywall(null);
+
+    try {
+      videoPlayer.pause();
+    } catch {}
+
+    waveform.detach();
+
+    audioStatusSubRef.current?.remove();
+    audioStatusSubRef.current = null;
+
+    clearLockScreen();
+
+    if (audioPlayerRef.current) {
+      try {
+        audioPlayerRef.current.pause();
+        audioPlayerRef.current.remove();
+      } catch {}
+
+      audioPlayerRef.current = null;
+    }
+
+    setChapters([]);
+
+    dispatch(setIsPlaying(false));
+    dispatch(resetPlaybackTiming());
+    dispatch(setVideoEnabled(false));
+    dispatch(setChapterIndex(0));
+    dispatch(setMode("checking"));
+    dispatch(setIsExpanded(false));
+    dispatch(setIsActive(false));
+  };
+
+  // Any logout path (profile button, token expiry, ...) ends up here:
+  // the moment `auth.user` goes from a user to null, playback is stopped.
+  useEffect(() => {
+    if (prevAuthUserRef.current && !authUser) {
+      stopAndReset();
+    }
+
+    prevAuthUserRef.current = authUser;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUser]);
+
+  // clear the sleep-timer interval if the provider ever unmounts
+  useEffect(() => {
+    return () => {
+      if (sleepTimeoutRef.current) clearInterval(sleepTimeoutRef.current);
+    };
+  }, []);
 
   /* =======================================================
      BACKGROUND
@@ -1452,6 +1990,26 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
     closePlayer,
 
+    stopAndReset,
+
+    paywall,
+
+    dismissPaywall,
+
+    openPlayerScreen,
+
+    playbackRate,
+
+    setPlaybackRate,
+
+    sleepTimerMinutes,
+
+    sleepTimerRemaining,
+
+    setSleepTimer,
+
+    toggleSleepTimer,
+
     audioLevel: waveform.audioLevel,
 
     liveLevelAvailable: waveform.liveLevelAvailable,
@@ -1466,6 +2024,16 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   ======================================================= */
 
   return (
-    <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>
+    <PlayerContext.Provider value={value}>
+      {children}
+      {/* the player screen draws its own copy of this prompt */}
+      {!playerScreenOpen && (
+        <EpisodePaywallModal
+          paywall={paywall}
+          onDismiss={dismissPaywall}
+          onCollapse={() => dispatch(setIsExpanded(false))}
+        />
+      )}
+    </PlayerContext.Provider>
   );
 }

@@ -1,3 +1,5 @@
+import EpisodePaywallModal from './EpisodePaywallModal';
+import LiveWaveform from './LiveWaveform';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -49,7 +51,7 @@ const WAVE_BARS = 56;
 const WAVE_HEIGHT = 54;
 // bars use 80% of the row, the rest is headroom for the live bounce
 const BAR_FILL = 0.8;
-const SPEEDS = [1, 1.15, 1.25, 1.5, 2, 0.75];
+const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
 
 /* ========================================================================= */
 
@@ -292,6 +294,26 @@ export default function PlayerStandardScreen() {
     collapsePlayer,
   } = player;
 
+  // `isExpanded` (hides the mini player) must mean exactly one thing: THIS
+  // screen is open and focused. Setting it here, on focus / blur, means a
+  // swipe-down, the Android back button or any other way of leaving can never
+  // leave it stuck on "true" (which hid the mini player and made it look like
+  // the player could not be opened).
+  const expandRef = useRef(player.expandPlayer);
+  const collapseRef = useRef(player.collapsePlayer);
+  expandRef.current = player.expandPlayer;
+  collapseRef.current = player.collapsePlayer;
+
+  useFocusEffect(
+    useCallback(() => {
+      expandRef.current?.();
+
+      return () => {
+        collapseRef.current?.();
+      };
+    }, [])
+  );
+
   // Optional features. The buttons only show up if your PlayerProvider
   // exposes these functions (add them there when you want the feature).
   const extras = player as any;
@@ -312,11 +334,22 @@ export default function PlayerStandardScreen() {
     | ((listener: () => void) => () => void)
     | undefined = extras.subscribeWaveLevels;
 
-  const [rate, setRate] = useState(1);
+  // speed and sleep timer now live in PlayerProvider, so they survive
+  // chapter changes and closing / reopening the player.
+  const rate: number = player.playbackRate ?? 1;
+  const sleepMinutes: number | null = player.sleepTimerMinutes ?? null;
+  const sleepRemaining: number = player.sleepTimerRemaining ?? 0;
+
+  const sleepLabel = (() => {
+    if (!sleepMinutes) return '';
+    const m = Math.floor(sleepRemaining / 60);
+    const sec = sleepRemaining % 60;
+    return `${m}:${String(sec).padStart(2, '0')}`;
+  })();
 
   const cycleSpeed = () => {
-    const next = SPEEDS[(SPEEDS.indexOf(rate) + 1) % SPEEDS.length];
-    setRate(next);
+    const idx = SPEEDS.indexOf(rate);
+    const next = SPEEDS[(idx + 1) % SPEEDS.length];
     setPlaybackRate?.(next);
   };
 
@@ -370,165 +403,9 @@ export default function PlayerStandardScreen() {
 
   const coverSource = artUri ? { uri: artUri } : null;
 
-  /* =======================================================================
-     WAVEFORM (per chapter, stable)
-  ======================================================================= */
-
-  // Shape priority:
-  //  1) real peaks from the backend (chapter.waveform / peaks)
-  //  2) REAL loudness measured from the audio while it plays (live)
-  //  3) a stable generated shape for that chapter (placeholder)
-  const rawPeaks =
-    chapterAny?.waveform ?? chapterAny?.peaks ?? chapterAny?.waveform_data;
-
-  const backendPeaks = useMemo(() => parsePeaks(rawPeaks), [rawPeaks]);
-
-  const baseWave = useMemo(
-    () =>
-      backendPeaks
-        ? resamplePeaks(backendPeaks, WAVE_BARS)
-        : makeWaveform(String(currentChapter?.id ?? 'x'), WAVE_BARS),
-    [currentChapter?.id, backendPeaks]
-  );
-
-  // re-render when new real loudness has been measured (~2-3 times / second)
-  const [, setWaveTick] = useState(0);
-
-  useEffect(() => {
-    if (!subscribeWaveLevels) return;
-
-    return subscribeWaveLevels(() => setWaveTick((t) => t + 1));
-  }, [subscribeWaveLevels]);
-
-  /*
-   * FIX (wave not animating):
-   * `liveLevelAvailable` can be true while `audioLevel` never actually
-   * changes (e.g. iOS gives no metering). The old code then switched OFF the
-   * generated animation AND the live bars stayed frozen -> a dead waveform.
-   *
-   * Now "live" only counts when audioLevel really moves. If it is silent for
-   * 1.5s, we fall back to the generated animation automatically.
-   */
-  const [liveAlive, setLiveAlive] = useState(false);
-
-  useEffect(() => {
-    if (!audioLevel || !liveLevelAvailable || !isPlaying) {
-      setLiveAlive(false);
-      return;
-    }
-
-    let last = -1;
-    let lastChange = 0;
-
-    const id = audioLevel.addListener(({ value }) => {
-      if (Math.abs(value - last) > 0.01) {
-        last = value;
-        lastChange = Date.now();
-        setLiveAlive((prev) => (prev ? prev : true));
-      }
-    });
-
-    const timer = setInterval(() => {
-      if (Date.now() - lastChange > 1500) {
-        setLiveAlive(false);
-      }
-    }, 1000);
-
-    return () => {
-      audioLevel.removeListener(id);
-      clearInterval(timer);
-    };
-  }, [audioLevel, liveLevelAvailable, isPlaying]);
-
+  // waveform data + motion now live in <LiveWaveform /> (memoised), so the
+  // player screen itself no longer re-renders when the waveform updates.
   const isVideoNow = mode === 'video' || mode === 'checking';
-
-  // live mode = real audio samples are really arriving (audio mode only)
-  const liveMode = liveAlive && !!audioLevel && !isVideoNow;
-
-  // bars that were already played show their REAL loudness
-  let displayWave = baseWave;
-
-  if (!backendPeaks && currentChapter && getWaveLevels) {
-    const recorded = getWaveLevels(String(currentChapter.id));
-
-    if (recorded) {
-      const known = recorded.filter((v) => v >= 0);
-
-      if (known.length) {
-        const max = Math.max(...known, 0.03);
-
-        displayWave = baseWave.map((base, i) =>
-          recorded[i] >= 0
-            ? 0.18 + 0.82 * Math.min(1, recorded[i] / max)
-            : base
-        );
-      }
-    }
-  }
-
-  /* =======================================================================
-     WAVEFORM MOTION
-     - live mode: bars around the playhead jump with the real audio level
-     - otherwise (video, or sampling not available): generated animation,
-       only while audio is playing
-  ======================================================================= */
-
-  const phase = useRef(new Animated.Value(0)).current;
-
-  const shouldAnimate = isPlaying && !isSeeking && !liveMode;
-
-  useEffect(() => {
-    if (!shouldAnimate) {
-      phase.stopAnimation();
-      phase.setValue(0);
-      return;
-    }
-
-    const loop = Animated.loop(
-      Animated.timing(phase, {
-        toValue: 1,
-        duration: 1100,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      })
-    );
-
-    loop.start();
-
-    return () => {
-      loop.stop();
-    };
-  }, [shouldAnimate, phase]);
-
-  // generated per-bar motion (scaleY wobble, anchored to the bar bottom)
-  const barMotion = useMemo(
-    () =>
-      baseWave.map((h, i) => {
-        const barH = WAVE_HEIGHT * BAR_FILL * h;
-
-        const scales = [
-          1,
-          1 + 0.05 + noise(i, 1) * 0.3,
-          1 - (0.05 + noise(i, 2) * 0.3),
-          1 + 0.05 + noise(i, 3) * 0.3,
-          1,
-        ];
-
-        const input = [0, 0.25, 0.5, 0.75, 1];
-
-        return {
-          scaleY: phase.interpolate({
-            inputRange: input,
-            outputRange: scales,
-          }),
-          translateY: phase.interpolate({
-            inputRange: input,
-            outputRange: scales.map((sc) => (-barH * (sc - 1)) / 2),
-          }),
-        };
-      }),
-    [baseWave, phase]
-  );
 
   /* =======================================================================
      LOADING
@@ -744,27 +621,25 @@ export default function PlayerStandardScreen() {
   ======================================================================= */
 
   const handleOpenMusicList = () => {
+    const storyId = currentChapter?.storyId;
+
+    // close the player screen (so no hidden copy stays in the stack) ...
     collapsePlayer();
 
-    if (currentChapter?.storyId) {
-      router.push({
-        pathname: '/storyEpisode',
-        params: {
-          storyId:
-            currentChapter.storyId,
-          // episode-list button -> open the chapter list directly
-          tab: 'chapters',
-        },
-      });
-    } else {
-      console.log(
-        'handleOpenMusicList: missing storyId on currentChapter'
-      );
-
+    if (router.canGoBack()) {
       router.back();
     }
-  };
 
+    // ... then open the chapter list of this book
+    if (storyId) {
+      setTimeout(() => {
+        router.push({
+          pathname: '/storyEpisode',
+          params: { storyId, tab: 'chapters' },
+        } as any);
+      }, 80);
+    }
+  };
   /* =======================================================================
      PROGRESS
   ======================================================================= */
@@ -838,6 +713,13 @@ export default function PlayerStandardScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Free episode ended / locked Next: rent or Premium prompt */}
+      <EpisodePaywallModal
+        paywall={player.paywall ?? null}
+        onDismiss={player.dismissPaywall}
+        onCollapse={collapsePlayer}
+      />
+
       {/* ================================================================
           BACKGROUND  (depends on chapter cover, else story cover)
       ================================================================ */}
@@ -1232,62 +1114,24 @@ export default function PlayerStandardScreen() {
               onLayout={measureTrack}
               collapsable={false}
             >
-              <View style={styles.waveRow} pointerEvents="none">
-                {displayWave.map((h, i) => {
-                  const played = (i + 0.5) / displayWave.length <= progress;
-                  const barH = WAVE_HEIGHT * BAR_FILL * h;
-
-                  // bars next to the playhead react to the real audio level
-                  const playIndex = Math.min(
-                    displayWave.length - 1,
-                    Math.floor(progress * displayWave.length)
-                  );
-                  const distance = Math.abs(i - playIndex);
-                  const reactive =
-                    liveMode &&
-                    isPlaying &&
-                    !isSeeking &&
-                    !!audioLevel &&
-                    distance <= 3;
-                  const weight = reactive ? 1 - distance / 4 : 0;
-
-                  const transform: any = reactive
-                    ? [
-                        {
-                          translateY: audioLevel!.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0, -(barH * 0.55 * weight) / 2],
-                          }),
-                        },
-                        {
-                          scaleY: audioLevel!.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [1, 1 + 0.55 * weight],
-                          }),
-                        },
-                      ]
-                    : [
-                        { translateY: barMotion[i].translateY },
-                        { scaleY: barMotion[i].scaleY },
-                      ];
-
-                  return (
-                    <Animated.View
-                      key={i}
-                      style={[
-                        styles.waveBar,
-                        {
-                          height: barH,
-                          backgroundColor: played
-                            ? ACCENT_SOFT
-                            : 'rgba(255,190,120,0.30)',
-                          transform,
-                        },
-                      ]}
-                    />
-                  );
-                })}
-              </View>
+              <LiveWaveform
+                chapterId={String(currentChapter.id)}
+                rawPeaks={
+                  chapterAny?.waveform ??
+                  chapterAny?.peaks ??
+                  chapterAny?.waveform_data
+                }
+                progress={progress}
+                elapsed={displayElapsed}
+                playbackRate={rate}
+                isPlaying={isPlaying}
+                isSeeking={isSeeking}
+                isVideoNow={isVideoNow}
+                audioLevel={audioLevel}
+                liveLevelAvailable={liveLevelAvailable}
+                getWaveLevels={getWaveLevels}
+                subscribeWaveLevels={subscribeWaveLevels}
+              />
 
               <View style={styles.progressTrack} pointerEvents="none">
                 <View
@@ -1458,10 +1302,13 @@ export default function PlayerStandardScreen() {
                 accessibilityLabel={t('player.sleepTimer')}
               >
                 <Ionicons
-                  name="moon-outline"
+                  name={sleepMinutes ? 'moon' : 'moon-outline'}
                   size={22}
-                  color="rgba(255,255,255,0.8)"
+                  color={sleepMinutes ? '#F5C451' : 'rgba(255,255,255,0.8)'}
                 />
+                {sleepMinutes ? (
+                  <Text style={styles.speedText}>{sleepLabel}</Text>
+                ) : null}
               </Pressable>
             ) : null}
 

@@ -141,7 +141,7 @@ async function syncQueue() {
     const ids = Object.keys(q);
     if (!ids.length) return;
 
-    log("[saveListen] SYNC queue, items:", ids.length);
+    // log("[saveListen] SYNC queue, items:", ids.length);
 
     for (const id of ids) {
       try {

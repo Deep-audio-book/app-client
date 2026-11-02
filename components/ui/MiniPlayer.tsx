@@ -9,6 +9,8 @@ import {
   View,
 } from 'react-native';
 import { useSelector } from 'react-redux';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTabBarStore } from './tabBarStore';
 
 import { usePlayer } from '../../providers/PlayerProvider';
 import { RootState } from '../../redux/store';
@@ -37,13 +39,18 @@ export function MiniPlayer() {
     chapters,
     currentChapter,
     handlePlayPause,
-    expandPlayer,
+    openPlayerScreen,
     handleNextChapter,
     handlePreviousChapter,
     closePlayer,
   } = usePlayer();
 
   const router = useRouter();
+
+  // Sit exactly above the tab bar (measured), not at a hardcoded offset.
+  const tabBarHeight = useTabBarStore((st) => st.height);
+  const insets = useSafeAreaInsets();
+  const bottomOffset = (tabBarHeight > 0 ? tabBarHeight : insets.bottom) + 8;
 
   /* =========================================================
      HIDE MINI PLAYER
@@ -111,11 +118,7 @@ export function MiniPlayer() {
   ========================================================= */
 
   const handleExpand = () => {
-    expandPlayer();
-
-    router.push(
-      '/player-standard'
-    );
+    openPlayerScreen();
   };
 
   /* =========================================================
@@ -169,7 +172,7 @@ export function MiniPlayer() {
   return (
     <Pressable
       onPress={handleExpand}
-      style={styles.wrapper}
+      style={[styles.wrapper, { bottom: bottomOffset }]}
     >
       {/* =====================================================
           PROGRESS
@@ -346,8 +349,7 @@ const styles = StyleSheet.create({
     left: 8,
     right: 8,
 
-    // 👇 Footer
-    bottom: 95,
+    // bottom is set at render time from the measured tab bar height
 
     backgroundColor: '#1C1C1C',
 

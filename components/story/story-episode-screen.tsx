@@ -426,7 +426,9 @@ function DownloadControl({
   const { t } = useTranslation();
   const audio = useDownloadStore((s) => s.files[fileKey(story.id, track.id, "audio")]);
   const video = useDownloadStore((s) => s.files[fileKey(story.id, track.id, "video")]);
-  const hasVideo = track.video_status === 1;
+  // video download is offered ONLY when the episode really has a video file
+  const hasVideo =
+    track.video_status === 1 && !!String(track.video_url ?? "").trim();
 
   const active = [audio, video].filter(
     (r): r is DownloadRecord => r?.status === "downloading"
@@ -585,14 +587,15 @@ function TrackRow({
   const unavailableOffline = offline && !hasLocalAudio;
   const dimmed = effectiveLocked || unavailableOffline;
 
-  // Active chapter tap -> pause / resume (does not open the player screen).
+  // Round icon on the playing episode -> pause / resume.
   const togglePlayback = () => {
     player.handlePlayPause?.();
   };
 
   const onPressPlay = async () => {
+    // Playing episode: tapping the row opens the player screen.
     if (isActive) {
-      togglePlayback();
+      player.openPlayerScreen?.();
       return;
     }
 
@@ -610,8 +613,7 @@ function TrackRow({
       // Hand THIS story's episodes to the player only now (user pressed play)
       await prepareChapters();
       await playChapterAt(chapterIndex, { autoPlay: true });
-      dispatch(setIsExpanded(true));
-      router.push("/player-standard");
+      player.openPlayerScreen?.();
     } catch (error) {
       console.error("Play chapter error:", error);
     }
@@ -680,13 +682,19 @@ function TrackRow({
             )}
 
             {isActive && (
-              <View style={localStyles.thumbCenterIcon}>
+              <Pressable
+                style={localStyles.thumbCenterIcon}
+                onPress={togglePlayback}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={isPlaying ? "Pause" : "Play"}
+              >
                 <Ionicons
                   name={isPlaying ? "pause" : "play"}
                   size={20}
                   color={COLORS.cream}
                 />
-              </View>
+              </Pressable>
             )}
 
             {/* Downloaded tick */}
@@ -1176,6 +1184,9 @@ export default function AlbumScreen() {
       // No chapter cover -> use the story cover. Doing it here means the
       // player screen AND the mini player (which only read `cover`) both get it.
       cover: chapter.cover || storyCover,
+      // paid episode the person has not unlocked (rent / buy / Premium):
+      // the player shows the rent prompt instead of trying to play it
+      locked: !(purchased || rented || isSubscribed) && !isFree(chapter),
       story: storyDetail.title,
       storyId: storyDetail.id,
       storyCover,
@@ -1190,7 +1201,7 @@ export default function AlbumScreen() {
           ? chapter
           : { ...chapter, video_url: null, video_status: 0 }
       );
-  }, [storyDetail, downloadedSig, isOfflineMode]);
+  }, [storyDetail, downloadedSig, isOfflineMode, purchased, rented, isSubscribed]);
 
   // chapter id -> index in the player list (O(1) lookup, matters for 100+ episodes)
   const chapterIndexById = useMemo(() => {
@@ -1754,8 +1765,7 @@ export default function AlbumScreen() {
     try {
       await prepareChapters();
       await playChapterAt(0, { autoPlay: true });
-      dispatch(setIsExpanded(true));
-      router.push("/player-standard");
+      player.openPlayerScreen?.();
     } catch (error) {
       console.error("Play story error:", error);
     }
@@ -1776,8 +1786,7 @@ export default function AlbumScreen() {
     try {
       await prepareChapters();
       await playChapterAt(freeChapterIndex, { autoPlay: true });
-      dispatch(setIsExpanded(true));
-      router.push("/player-standard");
+      player.openPlayerScreen?.();
     } catch (error) {
       console.error("Play free episode error:", error);
     }

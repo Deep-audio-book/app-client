@@ -1,11 +1,16 @@
 import axios from '@/axios.config';
 import { Ionicons } from '@expo/vector-icons';
-import { Tabs } from 'expo-router';
+import { Tabs, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSelector } from 'react-redux';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getCurrentUserId } from '../../components/download/currentUser';
+import { useTabBarStore } from '../../components/ui/tabBarStore';
+import { useResumeLastPlayed } from '../../hooks/useResumeLastPlayed';
+import { usePlayer } from '../../providers/PlayerProvider';
+import { RootState } from '../../redux/store';
 
 const GOLD = '#F5B93C';
 const INACTIVE = '#8A8A8A';
@@ -27,6 +32,8 @@ const CENTER_ICON_SIZE = 22;
 function useHasLastPlayed() {
   const { i18n } = useTranslation();
   const [hasLastPlayed, setHasLastPlayed] = useState(false);
+  const [lastStoryId, setLastStoryId] = useState<string | null>(null);
+  const [lastChapterNumber, setLastChapterNumber] = useState<number | null>(null);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -40,7 +47,11 @@ function useHasLastPlayed() {
     const userId = getCurrentUserId();
 
     if (!userId) {
-      if (mounted.current) setHasLastPlayed(false);
+      if (mounted.current) {
+        setHasLastPlayed(false);
+        setLastStoryId(null);
+        setLastChapterNumber(null);
+      }
       return;
     }
 
@@ -53,14 +64,22 @@ function useHasLastPlayed() {
 
       const story = response.data?.data?.last_played?.story;
 
-      if (mounted.current) setHasLastPlayed(!!story?.id);
+      if (mounted.current) {
+        setHasLastPlayed(!!story?.id);
+        setLastStoryId(story?.id ? String(story.id) : null);
+        setLastChapterNumber(
+          story?.current_chapter_number != null
+            ? Number(story.current_chapter_number)
+            : null
+        );
+      }
     } catch (error) {
       // Keep the previous value if the request fails.
       console.log('getLibraryData (last played check) failed:', error);
     }
   }, [i18n.language]);
 
-  return { hasLastPlayed, refresh };
+  return { hasLastPlayed, lastStoryId, lastChapterNumber, refresh };
 }
 
 /* Soft gold ring that pulses outward behind the Now Playing circle. */
@@ -106,6 +125,8 @@ type CustomTabBarProps = {
   // right after the first play, before getLibraryData has last_played.
   isPlaying?: boolean;
   hasLastPlayed: boolean;
+  lastStoryId?: string | null;
+  lastChapterNumber?: number | null;
   onRefresh: () => void;
 };
 
@@ -114,10 +135,33 @@ function CustomTabBar({
   navigation,
   isPlaying = false,
   hasLastPlayed,
+  lastStoryId,
+  lastChapterNumber,
   onRefresh,
 }: CustomTabBarProps) {
   const { t } = useTranslation();
+  const router = useRouter();
+  const { openPlayerScreen } = usePlayer();
+  const { resume } = useResumeLastPlayed();
+  const setTabBarHeight = useTabBarStore((st) => st.setHeight);
   const routeNames = state.routes.map((r: any) => r.name);
+
+  // Now Playing: open the real player when something is loaded; otherwise
+  // open the last played story so the person can resume it.
+  const playerActive = useSelector((st: RootState) => st.player.isActive);
+
+  const handleNowPlaying = () => {
+    if (playerActive) {
+      openPlayerScreen();
+      return;
+    }
+
+    // nothing loaded yet: open the last played book at the episode and the
+    // second where the person stopped, straight in the player.
+    if (lastStoryId) {
+      resume(lastStoryId, lastChapterNumber);
+    }
+  };
 
   // Re-check last_played on mount and every time the user switches tab,
   // so the button appears after they play something.
@@ -163,7 +207,11 @@ function CustomTabBar({
   };
 
   return (
-    <SafeAreaView edges={['bottom']} style={styles.tabBar}>
+    <SafeAreaView
+      edges={['bottom']}
+      style={styles.tabBar}
+      onLayout={(e) => setTabBarHeight(e.nativeEvent.layout.height)}
+    >
       {SIDE_TABS.map(renderSideTab)}
 
       {/* Center "Now Playing" button. It stays INSIDE the bar (no negative
@@ -173,7 +221,9 @@ function CustomTabBar({
         <View style={styles.centerWrapper}>
           <Pressable
             style={styles.centerButton}
-            onPress={() => navigation.navigate('playlist-info')}
+            onPress={handleNowPlaying}
+            accessibilityRole="button"
+            accessibilityLabel={t('tabs.nowPlaying')}
           >
             <View style={styles.centerBox}>
               <PulseRing active={centerActive} />
@@ -184,7 +234,7 @@ function CustomTabBar({
                 ]}
               >
                 <Ionicons
-                  name="pulse"
+                  name={centerActive ? 'headset' : 'headset-outline'}
                   size={CENTER_ICON_SIZE}
                   color={centerActive ? GOLD : INACTIVE}
                 />
@@ -208,10 +258,11 @@ function CustomTabBar({
 }
 
 export default function TabLayout() {
-  // TODO: replace with real playback state from your store/context.
-  const isPlaying = false;
+  // Real playback state from redux (was a hardcoded `false`).
+  const isPlaying = useSelector((st: RootState) => st.player.isPlaying);
 
-  const { hasLastPlayed, refresh } = useHasLastPlayed();
+  const { hasLastPlayed, lastStoryId, lastChapterNumber, refresh } =
+    useHasLastPlayed();
 
   return (
     <Tabs
@@ -220,6 +271,8 @@ export default function TabLayout() {
           {...props}
           isPlaying={isPlaying}
           hasLastPlayed={hasLastPlayed}
+          lastStoryId={lastStoryId}
+          lastChapterNumber={lastChapterNumber}
           onRefresh={refresh}
         />
       )}
@@ -230,7 +283,6 @@ export default function TabLayout() {
     >
       <Tabs.Screen name="home" />
       <Tabs.Screen name="search" />
-      <Tabs.Screen name="now-playing" />
       <Tabs.Screen name="favorites" />
       <Tabs.Screen name="library" />
     </Tabs>
