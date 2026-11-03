@@ -339,18 +339,8 @@ const FavoritesScreen: React.FC = () => {
         });
         break;
       case "bookmarks":
-        router.push({
-          pathname: "/storyView",
-          params: {
-            view_type: "list",
-            key_type: "bookmark",
-            api_method: "getBookmarkedChapters",
-            user_id: userId,
-            title: t("favorites.cat.bookmarks", {
-              defaultValue: "Bookmarked Chapters",
-            }),
-          },
-        });
+        // chapters (not stories), so they have their own screen
+        router.push("/bookmarks" as any);
         break;
     }
   };

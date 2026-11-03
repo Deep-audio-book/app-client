@@ -397,6 +397,17 @@ export function CartSheet({
 }
 
 export const x = StyleSheet.create({
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  statusText: { fontSize: 12, fontWeight: '600', color: '#9a9a9a' },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' },
   sheet: {
     backgroundColor: SHEET_BG,

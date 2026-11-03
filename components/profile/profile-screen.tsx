@@ -1,10 +1,12 @@
 import { useCartCount } from '@/hooks/Usecartcount';
+import { useMembership } from '@/hooks/useMembership';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -96,9 +98,14 @@ function Row({
   );
 }
 
-function SectionLabel({ children }: { children: string }) {
-  return <Text style={styles.sectionLabel}>{children}</Text>;
-}
+/**
+ * "Restore Purchases" re-links a subscription bought through the App Store /
+ * Google Play to a new phone or a reinstalled app. Apple REQUIRES it when
+ * subscriptions are sold through In-App Purchase. If payments go through
+ * Razorpay / the website only, it is not needed and stays hidden.
+ * Deep Talks + dev to confirm the payment model, then flip this.
+ */
+const SHOW_RESTORE_PURCHASES = Platform.OS === 'ios';
 
 /* ---------- main screen ---------- */
 
@@ -121,6 +128,10 @@ export default function ProfileScreen() {
 
   // Rentals in the cart (from the backend), refreshed when this screen is focused
   const cartCount = useCartCount();
+  const { isPremium, currentPlan } = useMembership();
+  const validUntil = currentPlan?.expiresOn
+    ? new Date(currentPlan.expiresOn).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+    : undefined;
 
   // Logout: clear session, then dismiss the modal AND go to /sign-in atomically.
   const handleLogout = async () => {
@@ -158,6 +169,15 @@ export default function ProfileScreen() {
       <SafeAreaView edges={['top']} style={styles.headerSafeArea}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>{t('profile.title')}</Text>
+          <Pressable
+            hitSlop={12}
+            onPress={() => router.push('/plans')}
+            accessibilityRole="button"
+            accessibilityLabel={t('profile.premium', 'Premium')}
+            style={{ position: 'absolute', right: 60, width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Ionicons name="diamond-outline" size={20} color={COLORS.gold} />
+          </Pressable>
           <Pressable
             hitSlop={12}
             style={styles.closeButton}
@@ -209,6 +229,16 @@ export default function ProfileScreen() {
           <Text style={styles.name} numberOfLines={1}>
             {user?.username || t('profile.defaultName')}
           </Text>
+          <View style={x.statusPill}>
+            <Ionicons
+              name={isPremium ? 'diamond' : 'person-outline'}
+              size={13}
+              color={isPremium ? COLORS.gold : COLORS.textFaint}
+            />
+            <Text style={[x.statusText, isPremium && { color: COLORS.gold }]}>
+              {isPremium ? t('profile.premium', 'Premium') : t('profile.freeUser', 'Free User')}
+            </Text>
+          </View>
           {!!user?.email && (
             <Text style={styles.email} numberOfLines={1}>
               {user.email}
@@ -225,14 +255,13 @@ export default function ProfileScreen() {
           </Pressable>
         </View>
 
-        {/* ---------- shop ---------- */}
-        <SectionLabel>{t('profile.shopSection', 'Shop')}</SectionLabel>
+        {/* ---------- account (no section headings) ---------- */}
         <View style={styles.group}>
           <Row
-            icon="cart-outline"
-            label={t('profile.myCart', 'My cart')}
-            badge={cartCount}
-            onPress={() => router.push('/cart' as any)}
+            icon="star-outline"
+            label={t('profile.subscription')}
+            value={validUntil ? t('profile.subscriptionValidUntil', { date: validUntil }) : undefined}
+            onPress={() => router.push('/plans')}
           />
           <View style={styles.rowDivider} />
           <Row
@@ -240,23 +269,27 @@ export default function ProfileScreen() {
             label={t('profile.myOrders', 'My orders')}
             onPress={() => router.push('/orders' as any)}
           />
-        </View>
-
-        {/* ---------- membership ---------- */}
-        <SectionLabel>{t('profile.membershipSection')}</SectionLabel>
-        <View style={styles.group}>
-          <Row
-            icon="star-outline"
-            label={t('profile.subscription')}
-            value={t('profile.subscriptionValidUntil', { date: 'May 23, 2021' })}
-            onPress={() => router.push("/plans")}
-          />
-          <View style={styles.rowDivider} />
-          <Row icon="refresh-outline" label={t('profile.restorePurchases')} onPress={() => {}} />
+          {/* Premium users listen to everything, so they don't need a cart */}
+          {!isPremium && (
+            <>
+              <View style={styles.rowDivider} />
+              <Row
+                icon="cart-outline"
+                label={t('profile.myCart', 'My cart')}
+                badge={cartCount}
+                onPress={() => router.push('/cart' as any)}
+              />
+            </>
+          )}
+          {SHOW_RESTORE_PURCHASES && (
+            <>
+              <View style={styles.rowDivider} />
+              <Row icon="refresh-outline" label={t('profile.restorePurchases')} onPress={() => {}} />
+            </>
+          )}
         </View>
 
         {/* ---------- support ---------- */}
-        <SectionLabel>{t('profile.supportSection', 'Help & support')}</SectionLabel>
         <View style={styles.group}>
           <Row
             icon="help-circle-outline"
@@ -272,7 +305,6 @@ export default function ProfileScreen() {
         </View>
 
         {/* ---------- about ---------- */}
-        <SectionLabel>{t('profile.aboutSection', 'About')}</SectionLabel>
         <View style={styles.group}>
           <Row
             icon="information-circle-outline"

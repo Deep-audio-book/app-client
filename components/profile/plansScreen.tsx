@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { Plan } from "../../api/Plans";
+import { visiblePlans, type Plan } from "../../api/Plans";
 import { theme } from "../ui/theme";
 
 const c = theme.colors;
@@ -92,6 +92,12 @@ function PlanCard({ plan, base, isBest, isCurrent, selected, onPress }: PlanCard
         </View>
         <Text style={styles.planSub}>{subtitle}</Text>
         {!!description && <Text style={styles.planDesc}>{description}</Text>}
+        {plan.benefits.map((b) => (
+          <View key={b} style={styles.benefitRow}>
+            <Ionicons name="checkmark" size={14} color={c.accent} />
+            <Text style={styles.benefitText}>{b}</Text>
+          </View>
+        ))}
       </View>
 
       <View style={styles.priceCol}>
@@ -120,7 +126,7 @@ type Props = {
 };
 
 export default function PlansScreen({
-  plans,
+  plans: allPlans,
   currentPlanId,
   currentPlanName,
   loading = false,
@@ -135,7 +141,9 @@ export default function PlansScreen({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const base = plans[0]; // plans are sorted shortest duration first
+  // show only what makes sense for the user's current subscription
+  const plans = visiblePlans(allPlans, currentPlanId);
+  const base = allPlans[0]; // shortest paid plan - saving % is always worked out against it
   const best =
     plans.length > 1
       ? plans.reduce((a, b) => (daily(b) < daily(a) ? b : a))
@@ -191,7 +199,7 @@ export default function PlansScreen({
         </Text>
 
         <View style={styles.features}>
-          {FEATURE_KEYS.map((key) => (
+          {!plans.some((p) => p.benefits.length > 0) && FEATURE_KEYS.map((key) => (
             <View key={key} style={styles.featureRow}>
               <Ionicons name="checkmark-circle" size={20} color={c.accent} />
               <Text style={styles.featureText}>{t(key)}</Text>
@@ -347,6 +355,8 @@ const styles = StyleSheet.create({
   },
   badgeOutlineText: { fontSize: 11, fontWeight: "600", color: c.textSecondary },
   planSub: { marginTop: 4, fontSize: 13, color: c.textSecondary },
+  benefitRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
+  benefitText: { flex: 1, fontSize: 12, color: c.textPrimary },
   planDesc: { marginTop: 4, fontSize: 12, lineHeight: 17, color: c.textSecondary },
   priceCol: { alignItems: "flex-end" },
   price: { fontSize: 22, fontWeight: "700", color: c.textPrimary },

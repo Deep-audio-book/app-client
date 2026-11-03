@@ -1,3 +1,4 @@
+import { useBookmark } from '@/hooks/useBookmark';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -311,6 +312,13 @@ export default function PlayerStandardScreen() {
         collapseRef.current?.();
       };
     }, [])
+  );
+
+  // Chapter bookmark (separate from Listen Later, which saves the whole book)
+  const { active: bookmarked, toggle: toggleBookmarkPress } = useBookmark(
+    (currentChapter as any)?.storyId,
+    currentChapter?.id,
+    () => elapsed
   );
 
   // Optional features. The buttons only show up if your PlayerProvider
@@ -1312,15 +1320,17 @@ export default function PlayerStandardScreen() {
             ) : null}
 
             <Pressable
+              onPress={toggleBookmarkPress}
               hitSlop={8}
               style={styles.barIcon}
               accessibilityRole="button"
+              accessibilityState={{ selected: bookmarked }}
               accessibilityLabel={t('player.bookmark')}
             >
               <Ionicons
-                name="bookmark-outline"
+                name={bookmarked ? 'bookmark' : 'bookmark-outline'}
                 size={22}
-                color="rgba(255,255,255,0.8)"
+                color={bookmarked ? '#F5C451' : 'rgba(255,255,255,0.8)'}
               />
             </Pressable>
 
