@@ -1,6 +1,6 @@
-import { isNetworkError, useOnReconnect } from "../../utils/network";
 import axios from "@/axios.config";
 import { router } from "expo-router";
+import i18n from "i18next";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -16,12 +16,12 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Path } from "react-native-svg";
+import { isNetworkError, useOnReconnect } from "../../utils/network";
 
 /* ---------- config ---------- */
 
-// TODO: un app la user id epdi kidaikkum nu paathu inga maathu
-// (AsyncStorage / auth context / redux etc.)
-const USER_ID = 1;
+// user_id and language_code are added to every request by axios.config.ts,
+// so nothing user-specific is hard-coded here.
 
 const DEBOUNCE_MS = 400;
 const MIN_QUERY_LENGTH = 1;
@@ -62,8 +62,8 @@ const KIND_BY_KEY: Record<string, ResultKind> = {
   genres: "genre",
 };
 
-function kindFromSectionType(type?: string): ResultKind | undefined {
-  if (!type) return undefined;
+function kindFromSectionType(type?: unknown): ResultKind | undefined {
+  if (typeof type !== "string" || !type) return undefined;
   const key = type.toLowerCase();
   const hit = Object.keys(KIND_BY_KEY).find((k) => key.includes(k));
   return hit ? KIND_BY_KEY[hit] : undefined;
@@ -71,7 +71,8 @@ function kindFromSectionType(type?: string): ResultKind | undefined {
 
 function toItem(raw: any, kind: ResultKind): ResultItem {
   return {
-    id: Number(raw.id),
+    // most backends send `id`; fall back to `<kind>_id` (e.g. story_id)
+    id: Number(raw.id ?? raw[`${kind}_id`]),
     kind,
     title: raw.name ?? raw.title ?? "",
     subtitle: raw.author_name ?? raw.authorName ?? raw.description ?? undefined,
@@ -84,11 +85,20 @@ function normalize(data: any, titles: Record<ResultKind, string>): ResultSection
 
   if (Array.isArray(data)) {
     data.forEach((s: any) => {
-      const kind = kindFromSectionType(s.type) ?? "story";
+      // The section's type decides what a tap does, so look at every field
+      // that could name it, and let an item's own `type` override it.
+      const kind =
+        kindFromSectionType(s.type) ??
+        kindFromSectionType(s.key) ??
+        kindFromSectionType(s.kind) ??
+        "story";
+
       if (Array.isArray(s.data) && s.data.length) {
         sections.push({
           title: s.title ?? titles[kind],
-          data: s.data.map((r: any) => toItem(r, kind)),
+          data: s.data.map((r: any) =>
+            toItem(r, kindFromSectionType(r?.type ?? r?.kind) ?? kind)
+          ),
         });
       }
     });
@@ -108,12 +118,37 @@ function normalize(data: any, titles: Record<ResultKind, string>): ResultSection
   return sections;
 }
 
-/* ---------- navigation (un search screen la irundha same routes) ---------- */
+/* ---------- navigation ----------
+ *
+ * Tapping a result opens the matching page - the same routes and params
+ * the Search tab (SearchScreen.tsx) and the rest of the app already use:
+ *
+ *   story     -> /storyEpisode   { storyId }          (About page first)
+ *   author    -> /author-details { id, method: getAuthorDetails,   id_key: author_id }
+ *   narrator  -> /author-details { id, method: getNarratorDetails, id_key: narrator_id }
+ *   genre     -> /storyView      { api_method: getGenreStories, genre_id }
+ *   category  -> /storyView      { api_method: getStoryListViewAll, key_type: id }
+ */
 
 function openItem(item: ResultItem) {
+  // A result without a usable id can't open anything.
+  if (!Number.isFinite(item.id)) return;
+
   Keyboard.dismiss();
 
   switch (item.kind) {
+    case "story":
+      router.push({
+        pathname: "/storyEpisode",
+        params: {
+          storyId: String(item.id),
+          // optional: lets the page show the title / cover while it loads
+          title: item.title,
+          ...(item.image ? { cover: item.image } : {}),
+        },
+      } as any);
+      break;
+
     case "author":
       router.push({
         pathname: "/author-details",
@@ -121,10 +156,11 @@ function openItem(item: ResultItem) {
           id: String(item.id),
           method: "getAuthorDetails",
           id_key: "author_id",
-          title: "Author",
+          title: item.title || i18n.t("search.authorTitle"),
         },
       });
       break;
+
     case "narrator":
       router.push({
         pathname: "/author-details",
@@ -132,10 +168,11 @@ function openItem(item: ResultItem) {
           id: String(item.id),
           method: "getNarratorDetails",
           id_key: "narrator_id",
-          title: "Narrator",
+          title: item.title || i18n.t("search.narratorTitle"),
         },
       });
       break;
+
     case "genre":
       router.push({
         pathname: "/storyView",
@@ -148,6 +185,7 @@ function openItem(item: ResultItem) {
         },
       });
       break;
+
     case "category":
       router.push({
         pathname: "/storyView",
@@ -157,14 +195,6 @@ function openItem(item: ResultItem) {
           key_type: String(item.id),
           api_method: "getStoryListViewAll",
         },
-      });
-      break;
-    case "story":
-    default:
-      // TODO: un story details / player route inga podu
-      router.push({
-        pathname: "/story-details" as any,
-        params: { id: String(item.id) },
       });
       break;
   }
@@ -262,7 +292,6 @@ const SearchResultsScreen: React.FC = () => {
         const { data: res } = await axios.post("/", {
           method: "getSearchResults",
           query: text,
-          user_id: USER_ID,
         });
 
         if (id !== requestId.current) return;
