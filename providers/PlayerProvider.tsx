@@ -31,6 +31,7 @@ import {
   setVideoEnabled,
 } from "../redux/slices/playerReducer";
 
+import { useLastListenedStore } from "../redux/slices/lastListenedStore";
 import { RootState } from "../redux/store";
 
 /* =========================================================
@@ -1873,11 +1874,28 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (prevAuthUserRef.current && !authUser) {
       stopAndReset();
+      useLastListenedStore.getState().reset();
     }
 
     prevAuthUserRef.current = authUser;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authUser]);
+
+  // Remember the episode + second the person is at, so Home / Library can
+  // highlight it and "Resume" continues from exactly there.
+  useEffect(() => {
+    if (!currentChapter?.storyId) return;
+
+    const number = Number(currentChapter.number);
+
+    useLastListenedStore.getState().record(String(currentChapter.storyId), {
+      chapterNumber: Number.isFinite(number) && number > 0 ? number : chapterIndexRef.current + 1,
+      chapterId: String(currentChapter.id),
+      positionSec: elapsedRef.current || 0,
+      durationSec: durationRef.current || 0,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentChapter?.id, isPlaying]);
 
   // clear the sleep-timer interval if the provider ever unmounts
   useEffect(() => {

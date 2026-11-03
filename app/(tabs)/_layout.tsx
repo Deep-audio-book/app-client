@@ -8,6 +8,7 @@ import { useSelector } from 'react-redux';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getCurrentUserId } from '../../components/download/currentUser';
 import { useTabBarStore } from '../../components/ui/tabBarStore';
+import { TRANSITION } from '../../components/ui/transitions';
 import { useResumeLastPlayed } from '../../hooks/useResumeLastPlayed';
 import { usePlayer } from '../../providers/PlayerProvider';
 import { RootState } from '../../redux/store';
@@ -276,7 +277,15 @@ export default function TabLayout() {
           onRefresh={refresh}
         />
       )}
-      screenOptions={{ headerShown: false }}
+      screenOptions={{
+        headerShown: false,
+        // Subtle cross-fade when moving between tabs
+        animation: 'fade',
+        transitionSpec: {
+          animation: 'timing',
+          config: { duration: TRANSITION.tab, easing: TRANSITION.easing },
+        },
+      }}
       // Default is 'firstRoute': back from ANY page jumped to Home.
       // 'history' = back returns to the page the user came from.
       backBehavior="history"

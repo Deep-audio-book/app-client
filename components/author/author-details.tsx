@@ -2,7 +2,10 @@ import axios from '@/axios.config';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
+import FavouriteButton from '@/components/ui/FavouriteButton';
+import i18n from 'i18next';
 import React, { useCallback, useEffect, useState } from 'react';
+import { isNetworkError, useOnReconnect } from '../../utils/network';
 import {
   ActivityIndicator,
   Image,
@@ -218,7 +221,9 @@ export default function AuthorDetailScreen() {
       );
 
       setError(
-        'Something went wrong. Please try again.'
+        isNetworkError(err)
+          ? i18n.t('common.noInternet')
+          : 'Something went wrong. Please try again.'
       );
     } finally {
       setLoading(false);
@@ -228,6 +233,11 @@ export default function AuthorDetailScreen() {
   useEffect(() => {
     fetchDetails();
   }, [fetchDetails]);
+
+  // internet came back -> reload by itself (no Retry needed)
+  useOnReconnect(() => {
+    fetchDetails();
+  });
 
   const episodes = person?.stories ?? [];
 
@@ -464,9 +474,18 @@ export default function AuthorDetailScreen() {
             {person?.name ?? title ?? 'Unknown'}
           </Text>
 
-          <View
-            style={styles.circleButtonPlaceholder}
-          />
+          {/* Heart: favourite this author / narrator.
+              Same screen serves both - the id_key tells us which one. */}
+          <View style={styles.circleButtonPlaceholder}>
+            {person && (
+              <FavouriteButton
+                kind={id_key === 'narrator_id' ? 'narrator' : 'author'}
+                id={id}
+                initial={!!((person as any).favourited ?? (person as any).is_favourite ?? (person as any).wishlisted)}
+                size={20}
+              />
+            )}
+          </View>
         </View>
 
         {/* ================= PAGE ================= */}

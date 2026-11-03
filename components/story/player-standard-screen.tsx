@@ -1,26 +1,25 @@
-import EpisodePaywallModal from './EpisodePaywallModal';
-import LiveWaveform from './LiveWaveform';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { VideoView } from 'expo-video';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
   Animated,
-  Easing,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   useWindowDimensions,
-  View,
+  View
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
+import EpisodePaywallModal from './EpisodePaywallModal';
+import LiveWaveform from './LiveWaveform';
 
 import { usePlayer } from '../../providers/PlayerProvider';
 import { setIsExpanded } from '../../redux/slices/playerReducer';

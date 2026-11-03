@@ -1,3 +1,4 @@
+import { isNetworkError, useOnReconnect } from "../../utils/network";
 import axios from "@/axios.config";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -276,7 +277,7 @@ const SearchResultsScreen: React.FC = () => {
         if (id !== requestId.current) return;
         setSections([]);
         setError(
-          err.code === "ECONNABORTED" || err.message === "Network Error"
+          isNetworkError(err)
             ? t("search.noInternet")
             : t("search.somethingWentWrong")
         );
@@ -290,6 +291,12 @@ const SearchResultsScreen: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [t]
   );
+
+  // internet came back while a search is on screen -> run it again
+  useOnReconnect(() => {
+    const text = query.trim();
+    if (text.length >= MIN_QUERY_LENGTH) runSearch(text);
+  });
 
   // debounce: type panni 400ms nirutha aprm dhaan API call
   useEffect(() => {
@@ -380,6 +387,7 @@ const SearchResultsScreen: React.FC = () => {
         <View style={styles.centerFill}>
           <Text style={styles.emptyTitle}>
             {t("search.noResultsTitle", {
+              query: trimmed,
               defaultValue: `No results found for "${trimmed}"`,
             })}
           </Text>

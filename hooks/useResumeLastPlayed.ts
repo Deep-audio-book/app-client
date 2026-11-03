@@ -13,7 +13,7 @@
 import axios from "@/axios.config";
 import { useRouter } from "expo-router";
 import { useRef, useState } from "react";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import {
   localUri,
   withLocalMedia,
@@ -23,7 +23,9 @@ import {
   waitForHydration,
 } from "../components/download/downloadStore";
 import { usePlayer } from "../providers/PlayerProvider";
+import { useLastListenedStore } from "../redux/slices/lastListenedStore";
 import { setIsExpanded } from "../redux/slices/playerReducer";
+import type { RootState } from "../redux/store";
 
 function isFree(chapter?: { free?: unknown } | null) {
   const v = chapter?.free;
@@ -36,7 +38,14 @@ const flag = (...values: unknown[]) =>
 export function useResumeLastPlayed() {
   const router = useRouter();
   const dispatch = useDispatch();
-  const { playChapterAt, setChapters, openPlayerScreen } = usePlayer();
+  const {
+    playChapterAt,
+    setChapters,
+    openPlayerScreen,
+    currentChapter,
+    handlePlayPause,
+  } = usePlayer();
+  const isPlaying = useSelector((s: RootState) => s.player.isPlaying);
 
   const busyRef = useRef(false);
   const [resuming, setResuming] = useState(false);
@@ -44,11 +53,36 @@ export function useResumeLastPlayed() {
   const openBookPage = (storyId: string) =>
     router.push({ pathname: "/storyEpisode", params: { storyId } } as any);
 
+  /**
+   * @param chapterNumber episode to open (default: the one last listened to)
+   * @param opts.fromStart play it from 0:00 (e.g. tapping a different
+   *                       episode in the journey) instead of the saved second
+   */
   const resume = async (
     storyId: string,
-    chapterNumber?: number | null
+    chapterNumber?: number | null,
+    opts?: { fromStart?: boolean }
   ): Promise<void> => {
     if (busyRef.current) return;
+
+    // What the player remembers is newer than what the server sent to Home.
+    const local = useLastListenedStore.getState().entries[String(storyId)];
+    const targetNumber =
+      chapterNumber != null ? chapterNumber : local?.chapterNumber ?? null;
+
+    // Already loaded in the player: just open it (and continue if paused).
+    if (
+      currentChapter &&
+      String(currentChapter.storyId) === String(storyId) &&
+      targetNumber != null &&
+      Number(currentChapter.number) === Number(targetNumber) &&
+      !opts?.fromStart
+    ) {
+      if (!isPlaying) handlePlayPause?.();
+      openPlayerScreen();
+      return;
+    }
+
     busyRef.current = true;
     setResuming(true);
 
@@ -118,8 +152,8 @@ export function useResumeLastPlayed() {
 
       /* ---- 3. which episode: the one the person was on ---- */
 
-      let index = chapterNumber
-        ? list.findIndex((c) => Number(c.number) === Number(chapterNumber))
+      let index = targetNumber
+        ? list.findIndex((c) => Number(c.number) === Number(targetNumber))
         : -1;
 
       if (index < 0) index = 0;
@@ -133,7 +167,17 @@ export function useResumeLastPlayed() {
 
       let startAt = 0;
 
-      if (!offline) {
+      if (opts?.fromStart) {
+        // play this episode from the beginning
+      } else if (
+        local &&
+        local.chapterId === String(list[index].id) &&
+        local.positionSec > 5
+      ) {
+        const dur = Number(list[index].duration_in_seconds ?? 0);
+        const nearEnd = dur > 0 && local.positionSec >= dur - 10;
+        startAt = nearEnd ? 0 : local.positionSec;
+      } else if (!offline) {
         try {
           const res = await axios.post("/", {
             method: "getListenProgress",

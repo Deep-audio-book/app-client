@@ -1,6 +1,9 @@
 import axios from '@/axios.config';
 import WishlistHeart from "@/components/ui/WishlistHeart";
 import { useCartBadge } from "@/hooks/useCartBadge";
+import { useResumeLastPlayed } from "@/hooks/useResumeLastPlayed";
+import { isNetworkError, useOnReconnect } from "@/utils/network";
+import { useLastListenedStore } from "@/redux/slices/lastListenedStore";
 import { storyWishlisted, useWishlistStore } from "@/redux/slices/wishlistStore";
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from "expo-linear-gradient";
@@ -1611,8 +1614,14 @@ const ContinueListeningCard: React.FC<{ hero: HeroSection }> = ({ hero }) => {
   const story = hero.data;
   const resume = hero.mode === "resume";
 
+  // Resume opens the player at the episode + second the person stopped at.
+  const { resume: resumePlayback } = useResumeLastPlayed();
+
+  // what the player remembers is newer than what Home loaded
+  const local = useLastListenedStore((s) => s.entries[String(story.id)]);
+
   const pct = story.resume_percentage == null ? null : Math.max(0, Math.min(100, Math.round(story.resume_percentage)));
-  const chapter = story.current_chapter_number;
+  const chapter = local?.chapterNumber ?? story.current_chapter_number;
   const total = story.chapters;
 
   const metaParts: string[] = [];
@@ -1680,7 +1689,11 @@ const ContinueListeningCard: React.FC<{ hero: HeroSection }> = ({ hero }) => {
               style={localStyles.clPlayBtn}
               activeOpacity={0.85}
               hitSlop={HIT_SLOP}
-              onPress={() => goToStoryEpisode(story.id)}
+              onPress={() =>
+                resume
+                  ? resumePlayback(String(story.id), chapter ?? null)
+                  : goToStoryEpisode(story.id)
+              }
               accessibilityRole="button"
               accessibilityLabel={
                 resume
@@ -1718,8 +1731,15 @@ const ListeningJourney: React.FC<{ story: ApiStory }> = ({ story }) => {
   const scrollRef = useRef<ScrollView>(null);
   const { width } = useWindowDimensions();
 
+  const { resume: resumePlayback } = useResumeLastPlayed();
+
+  // The episode the person last listened to: what the player remembers
+  // first, otherwise what the server sent.
+  const local = useLastListenedStore((s) => s.entries[String(story.id)]);
+  const lastChapter = local?.chapterNumber ?? story.current_chapter_number;
+
   const total = Math.min(Number(story.chapters) || 0, MAX_NODES);
-  const current = Math.max(1, Math.min(Number(story.current_chapter_number) || 1, total || 1));
+  const current = Math.max(1, Math.min(Number(lastChapter) || 1, total || 1));
 
   useEffect(() => {
     const x = Math.max(0, (current - 1) * NODE_W - (width - H_PAD * 2) / 2 + NODE_W / 2);
@@ -1746,10 +1766,18 @@ const ListeningJourney: React.FC<{ story: ApiStory }> = ({ story }) => {
             <Pressable
               key={n}
               style={localStyles.jNode}
-              onPress={() => goToStoryEpisode(story.id)}
+              // last listened episode -> continue from the exact second;
+              // any other episode -> play it from its start
+              onPress={() =>
+                resumePlayback(String(story.id), n, { fromStart: !isCurrent })
+              }
               hitSlop={4}
               accessibilityRole="button"
-              accessibilityLabel={t("home.chapterOpen", { n })}
+              accessibilityLabel={
+                isCurrent
+                  ? t("home.resumeChapter", { n })
+                  : t("home.chapterOpen", { n })
+              }
               accessibilityState={{ selected: isCurrent }}
             >
               {/* connector to the previous node */}
@@ -1774,7 +1802,7 @@ const ListeningJourney: React.FC<{ story: ApiStory }> = ({ story }) => {
               </View>
 
               <Text style={[localStyles.jLabel, isCurrent && localStyles.jLabelCurrent]} numberOfLines={1}>
-                {isCurrent ? t("home.nowChapter") : t("home.chapterShort", { n })}
+                {isCurrent ? t("home.resumeHere") : t("home.chapterShort", { n })}
               </Text>
             </Pressable>
           );
@@ -1917,7 +1945,13 @@ const DeepAudiobooksHome: React.FC = () => {
         console.log("Error message:", err.message);
 
         // Silent background refreshes never replace the screen with an error.
-        if (reqId === requestIdRef.current && !silent) setError(t("home.somethingWentWrong"));
+        if (reqId === requestIdRef.current && !silent) {
+          setError(
+            isNetworkError(err)
+              ? t("search.noInternet")
+              : t("home.somethingWentWrong")
+          );
+        }
       } finally {
         if (reqId === requestIdRef.current) {
           setLoading(false);
@@ -1943,6 +1977,12 @@ const DeepAudiobooksHome: React.FC = () => {
   const fetchRef = useRef(fetchDiscoverData);
   fetchRef.current = fetchDiscoverData;
   const hasFocusedOnce = useRef(false);
+
+  // Internet came back: reload Home by itself (shows the error screen only
+  // if there is nothing on screen yet).
+  useOnReconnect(() => {
+    fetchRef.current(false, sectionsCountRef.current > 0);
+  });
 
   useFocusEffect(
     useCallback(() => {

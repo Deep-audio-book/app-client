@@ -2,6 +2,7 @@ import axios from '@/axios.config';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
+import FavouriteButton from '@/components/ui/FavouriteButton';
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
@@ -377,6 +378,16 @@ export default function GenreScreen() {
                           resizeMode="contain"
                         />
                       ))}
+                  </View>
+
+                  {/* Heart: favourite this genre */}
+                  <View style={{ position: 'absolute', top: 6, right: 6 }}>
+                    <FavouriteButton
+                      kind="genre"
+                      id={item.id}
+                      initial={!!((item as any).favourited ?? (item as any).is_favourite ?? (item as any).wishlisted ?? params.method === 'getFavouriteGenres')}
+                      size={16}
+                    />
                   </View>
 
                   {/* ================= GENRE NAME ================= */}

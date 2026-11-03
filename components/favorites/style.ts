@@ -80,7 +80,7 @@ const styles = StyleSheet.create({
 
   /* hero card */
   heroCard: {
-    height: 140,
+    height: 152,
     borderRadius: 10,
     overflow: "hidden",
     padding: 16,

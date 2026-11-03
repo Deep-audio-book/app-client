@@ -14,8 +14,6 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { logoutUser } from '../../redux/slices/authReducer';
 import { useAppDispatch, useAppSelector } from '../../utils/typedReduxHooks';
-import { getDownloadedStorySummaries } from "../download/downloadService";
-import { useDownloadStore, waitForHydration } from '../download/downloadStore';
 import {
   APP_VERSION,
   AboutSheet,
@@ -124,24 +122,6 @@ export default function ProfileScreen() {
   // Rentals in the cart (from the backend), refreshed when this screen is focused
   const cartCount = useCartCount();
 
-  // Real downloaded-episode count for the "Downloads" row
-  const [downloadedEpisodes, setDownloadedEpisodes] = useState(0);
-  const downloadSig = useDownloadStore((s) =>
-    Object.values(s.files)
-      .map((f) => `${f.storyId}:${f.chapterId}:${f.kind}:${f.status}`)
-      .sort()
-      .join('|')
-  );
-  useEffect(() => {
-    waitForHydration().then(() => {
-      const total = getDownloadedStorySummaries().reduce(
-        (sum, s) => sum + s.episodesDownloaded,
-        0
-      );
-      setDownloadedEpisodes(total);
-    });
-  }, [downloadSig]);
-
   // Logout: clear session, then dismiss the modal AND go to /sign-in atomically.
   const handleLogout = async () => {
     await dispatch(logoutUser());
@@ -243,21 +223,6 @@ export default function ProfileScreen() {
             <Ionicons name="create-outline" size={16} color={COLORS.gold} />
             <Text style={x.editBtnText}>{t('profile.editProfile', 'Edit profile')}</Text>
           </Pressable>
-        </View>
-
-        {/* ---------- listening ---------- */}
-        <SectionLabel>{t('profile.listeningSection')}</SectionLabel>
-        <View style={styles.group}>
-          <Row
-            icon="download-outline"
-            label={t('profile.downloads')}
-            value={
-              downloadedEpisodes > 0
-                ? t('profile.downloadsCount', { count: downloadedEpisodes })
-                : t('profile.noDownloadsYet')
-            }
-            onPress={() => router.push('/library' as any)}
-          />
         </View>
 
         {/* ---------- shop ---------- */}

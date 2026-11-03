@@ -12,7 +12,16 @@
     "authors": "Authors",
     "genres": "Genres",
     "noInternet": "No internet connection. Please check your network and try again.",
-    "all": "All"
+    "all": "All",
+    "noInternetShort": "No internet connection",
+    "backOnline": "Back online",
+    "back": "Back",
+    "clear": "Clear",
+    "retry": "Retry",
+    "new": "NEW",
+    "loadFailedRetry": "Couldn't load. Tap to retry.",
+    "loadingStories": "Loading stories…",
+    "noStoriesFound": "No stories found."
   },
   "tabs": {
     "home": "Home",
@@ -22,64 +31,68 @@
     "library": "Library"
   },
   "home": {
-        "addToCart": "Add {{title}} to cart",
-        "addToFavorites": "Add to favorites",
-        "alreadyInCart": "Already in cart",
+    "addToCart": "Add {{title}} to cart",
+    "addToFavorites": "Add to favorites",
+    "alreadyInCart": "Already in cart",
     "audioBook": "Audio book",
-        "bedSubtitle": "Soft, slow stories to wind down with",
-        "browseGenre": "Browse {{name}} stories",
-        "cartError": "Couldn't add this book to your cart. Please try again.",
-        "cartWithCount": "Open cart, {{count}} items",
-        "changeLanguage": "Change app language",
-        "chapterOf": "Chapter {{current}} of {{total}}",
-        "chapterOpen": "Chapter {{n}}",
-        "chapterShort": "Ch {{n}}",
-        "classicsSubtitle": "Timeless stories, beautifully told",
+    "bedSubtitle": "Soft, slow stories to wind down with",
+    "browseGenre": "Browse {{name}} stories",
+    "cartError": "Couldn't add this book to your cart. Please try again.",
+    "cartWithCount": "Open cart, {{count}} items",
+    "changeLanguage": "Change app language",
+    "chapterOf": "Chapter {{current}} of {{total}}",
+    "chapterOpen": "Chapter {{n}}",
+    "chapterShort": "Ch {{n}}",
+    "classicsSubtitle": "Timeless stories, beautifully told",
     "connectWithUs": "Connect with us",
-        "continueListening": "Continue listening",
+    "continueListening": "Continue listening",
     "copyright": "© {{year}} Deep Audiobooks. Stories worth hearing.",
-        "explore": "Explore",
+    "explore": "Explore",
     "failedToLoad": "Failed to load explore data",
-        "genres": "Genres",
-        "genresSubtitle": "Pick a mood, find a story",
-        "inCartOpen": "In your cart. Open cart",
-        "journeyTitle": "Your listening journey",
-        "listened": "{{percent}}% listened",
-        "listenNow": "Listen now",
+    "genres": "Genres",
+    "genresSubtitle": "Pick a mood, find a story",
+    "inCartOpen": "In your cart. Open cart",
+    "journeyTitle": "Your listening journey",
+    "listened": "{{percent}}% listened",
+    "listenNow": "Listen now",
     "listens": "{{count}} listens",
-        "membershipPoint1": "Unlimited listening to every audiobook",
-        "membershipPoint2": "No need to rent books one by one",
-        "membershipSubtitle": "One plan. Every audiobook.",
-        "membershipTitle": "Go Premium",
-        "modeBuy": "Rent Books",
-        "modeUnlimited": "Premium",
-        "nowChapter": "Now",
+    "membershipPoint1": "Unlimited listening to every audiobook",
+    "membershipPoint2": "No need to rent books one by one",
+    "membershipSubtitle": "One plan. Every audiobook.",
+    "membershipTitle": "Go Premium",
+    "modeBuy": "Rent Books",
+    "modeUnlimited": "Premium",
+    "nowChapter": "Now",
     "openAuthor": "Open {{name}}",
-        "openGenre": "Open {{name}}",
-        "openPremium": "View Premium plan",
-        "openProfile": "Open profile",
-        "openStory": "Open {{title}}",
-        "owned": "Owned",
-        "premium": "Premium",
-        "premiumCtaSubtitle": "Unlimited access to every audiobook",
-        "premiumCtaTitle": "Go Premium",
-        "priceTierSubtitle": "Rent for just {{price}}",
-        "priceTierTitle": "Books at {{price}}",
-        "pullingFreshStories": "Pulling fresh stories...",
-        "removeFromFavorites": "Remove from favorites",
-        "resume": "Resume",
-        "retry": "Retry",
-        "reviewsSubtitle": "What listeners are saying",
-        "seePlans": "See plans",
-        "somethingWentWrong": "Something went wrong. Please try again.",
-        "subscribeNow": "Subscribe Now",
+    "openGenre": "Open {{name}}",
+    "openPremium": "View Premium plan",
+    "openProfile": "Open profile",
+    "openStory": "Open {{title}}",
+    "owned": "Owned",
+    "premium": "Premium",
+    "premiumCtaSubtitle": "Unlimited access to every audiobook",
+    "premiumCtaTitle": "Go Premium",
+    "priceTierSubtitle": "Rent for just {{price}}",
+    "priceTierTitle": "Books at {{price}}",
+    "pullingFreshStories": "Pulling fresh stories...",
+    "removeFromFavorites": "Remove from favorites",
+    "resume": "Resume",
+    "retry": "Retry",
+    "reviewsSubtitle": "What listeners are saying",
+    "seePlans": "See plans",
+    "somethingWentWrong": "Something went wrong. Please try again.",
+    "subscribeNow": "Subscribe Now",
     "unlimitedBannerSubtitle": "Unlimited access to every audiobook",
-        "unlimitedBannerTitle": "Listen Unlimited",
-        "unlimitedTag": "Unlimited",
-        "viewAll": "View all",
-        "viewAllOf": "View all {{title}}",
-        "visitWebsite": "Visit our website",
-        "voice": "Voice: "
+    "unlimitedBannerTitle": "Listen Unlimited",
+    "unlimitedTag": "Unlimited",
+    "viewAll": "View all",
+    "viewAllOf": "View all {{title}}",
+    "visitWebsite": "Visit our website",
+    "voice": "Voice: ",
+    "resumeHere": "Resume",
+    "resumeChapter": "Resume chapter {{n}} where you stopped",
+    "newTag": "NEW",
+    "newReleasesSubtitle": "Fresh stories, just for you"
   },
   "search": {
     "title": "Search",
@@ -100,7 +113,12 @@
     "noInternet": "No internet connection. Please check your network and try again.",
     "somethingWentWrong": "Something went wrong. Please try again.",
     "retry": "Retry",
-    "retryLoading": "Retry loading search screen"
+    "retryLoading": "Retry loading search screen",
+    "idleTitle": "Play what you love",
+    "idleSub": "Search for stories, authors, narrators and more.",
+    "noResultsTitle": "No results found for \"{{query}}\"",
+    "noResultsSub": "Check the spelling or try a different keyword.",
+    "storiesTitle": "Stories"
   },
   "narrator": {
     "headerTitle": "Narrators",
@@ -228,7 +246,30 @@
     "removeFromFavorites": "Remove from favorites",
     "failedToLoad": "Failed to load favorites screen",
     "somethingWentWrong": "Something went wrong. Please try again.",
-    "retry": "Retry"
+    "retry": "Retry",
+    "addListenLater": "Save to Listen Later",
+    "removeListenLater": "Remove from Listen Later",
+    "emptyHint": "Tap the heart on any story, author, narrator or genre to keep it here.",
+    "cat": {
+      "stories": "Favourite Stories",
+      "storiesHint": "Stories you've hearted",
+      "narrators": "Narrators",
+      "narratorsHint": "Voices you love",
+      "authors": "Authors",
+      "authorsHint": "Writers you follow",
+      "genres": "Genres",
+      "genresHint": "Your kind of stories",
+      "listenLater": "Listen Later",
+      "listenLaterHint": "Books you plan to listen to",
+      "bookmarks": "Bookmarked Chapters",
+      "bookmarksHint": "Moments you marked while listening"
+    },
+    "section": {
+      "favourites": "Your favourites",
+      "favouritesHint": "Everything you've marked with a heart - stories, voices, writers and genres.",
+      "saved": "Saved for later",
+      "savedHint": "Listen Later keeps whole books. Bookmarks keep single chapters."
+    }
   },
   "purchase": {
     "youOwnThis": "You own this audiobook",
@@ -298,7 +339,8 @@
       "add": "Add to Cart",
       "added": "Added",
       "addStory": "Add story to cart",
-      "failTitle": "Couldn't add to cart"
+      "failTitle": "Couldn't add to cart",
+      "open": "Open cart"
     },
     "download": {
       "failedTitle": "Download failed",
@@ -346,7 +388,9 @@
       "rentNow": "Rent Now",
       "goToCart": "Go to Cart",
       "getPremium": "Get Premium"
-    }
+    },
+    "share": "Share",
+    "rented": "Rented"
   },
   "player": {
     "loadingChapter": "Loading chapter...",
@@ -429,5 +473,108 @@
   },
   "monthlyPlanDescription": "Full access for 30 days.",
   "quarterlyPlanDescription": "Full access for 90 days.",
-  "annualPlanDescription": "Full access for 365 days."
+  "annualPlanDescription": "Full access for 365 days.",
+  "library": {
+    "title": "Library",
+    "offlineNote": "You're offline. Last played, rented and recently listened need internet - your downloads below still work.",
+    "lastPlayed": "Last played",
+    "rented": "Rented books",
+    "noRented": "No rented books right now. Rent a book to listen to it here.",
+    "rentedActive": "Rented",
+    "endsToday": "Ends today",
+    "daysLeft": "{{days}} days left",
+    "episodeOf": "Episode {{current}}/{{total}}",
+    "episodesDownloaded": "{{n}} episodes · Downloaded",
+    "videosDownloaded": "{{n}} videos · Downloaded",
+    "partDownloaded": "{{done}}/{{total}} downloaded",
+    "downloads": "Downloads",
+    "noDownloads": "No downloads yet. Open a story and tap the download icon on an episode.",
+    "noDownloadsOffline": "No downloads yet. Connect to the internet to download episodes for offline listening.",
+    "noAudioDownloads": "No audio downloads yet.",
+    "noVideoDownloads": "No video downloads yet.",
+    "downloadedAudio": "Downloaded audio",
+    "downloadedVideo": "Downloaded video",
+    "viewAll": "View all",
+    "showLess": "Show less",
+    "opening": "Opening…",
+    "recentlyListened": "Recently listened"
+  },
+  "help": {
+    "title": "Help Center",
+    "intro": "Find quick answers about listening, downloads, renting and your account.",
+    "searchPlaceholder": "Search for help",
+    "all": "All",
+    "noResults": "No answers found",
+    "noResultsSub": "Try a different word, or contact our team below.",
+    "language": "App language",
+    "switchTo": "தமிழ்",
+    "switchLanguage": "Switch language to Tamil",
+    "stillNeedHelp": "Still need help?",
+    "stillNeedHelpSub": "Our team is happy to help. Write to us and we will get back to you.",
+    "categories": {
+      "start": "Getting started",
+      "listening": "Listening",
+      "downloads": "Downloads",
+      "rent": "Rent & Premium",
+      "account": "Account"
+    },
+    "faq": {
+      "findBooks": {
+        "q": "How do I find a book?",
+        "a": "Use the Search tab to look for a story, author, narrator or genre. You can also browse the sections and genres on the Home screen."
+      },
+      "freeEpisode": {
+        "q": "Can I listen before I rent?",
+        "a": "Many books have a free episode. Open the book and tap \"Play free episode\". The remaining episodes unlock when you rent the book or have Premium."
+      },
+      "changeLanguage": {
+        "q": "How do I change the app language?",
+        "a": "Tap the language button at the top of this page, or choose a language from the language screen. The whole app, including this Help Center, switches at once."
+      },
+      "resume": {
+        "q": "How do I continue where I stopped?",
+        "a": "Tap Resume on the Home screen, or open Library and tap Last played. The player opens at the episode and the second where you stopped."
+      },
+      "speedTimer": {
+        "q": "How do I change the speed or set a sleep timer?",
+        "a": "Open the player. Tap the speed button to change how fast the story plays, and the moon button to set a sleep timer."
+      },
+      "audioVideo": {
+        "q": "How do I switch between audio and video?",
+        "a": "If an episode has a video, a switch button appears in the player. Tap it to move between audio and video."
+      },
+      "background": {
+        "q": "Does the audio play when the screen is locked?",
+        "a": "Yes. Audio keeps playing in the background and you can pause or resume it from the lock screen."
+      },
+      "download": {
+        "q": "How do I download an episode?",
+        "a": "Open the book and tap the download icon next to the episode. Video can be downloaded only for episodes that have a video."
+      },
+      "downloadsWhere": {
+        "q": "Where are my downloads?",
+        "a": "Open the Library tab. Downloaded audio and downloaded video are listed separately, and they play without internet."
+      },
+      "rentVsPremium": {
+        "q": "What is the difference between renting and Premium?",
+        "a": "Renting unlocks one book for a limited time. Premium unlocks the Premium library for as long as your plan is active."
+      },
+      "rentalExpiry": {
+        "q": "How do I know when my rental ends?",
+        "a": "Open the Library tab. Under Rented books, each book shows how many days are left."
+      },
+      "cart": {
+        "q": "How do I rent more than one book at once?",
+        "a": "Tap Add to Cart on each book, then open the cart and check out once."
+      },
+      "devices": {
+        "q": "Can I use my account on another phone?",
+        "a": "Yes, you can sign in on another device. A limited number of devices can be signed in at the same time."
+      },
+      "logout": {
+        "q": "What happens when I log out?",
+        "a": "Playback stops and you are signed out. Your downloads on this phone stay until you remove them."
+      }
+    }
+  }
 }

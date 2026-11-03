@@ -1,5 +1,6 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
+import { useOnReconnect } from '../utils/network';
 
 /**
  * Runs `fetcher` every time the screen this hook is used in comes into
@@ -40,9 +41,17 @@ export function useFocusRefetch(fetcher: () => Promise<void> | void) {
     }
   }, []);
 
+  // Internet came back: reload the screen that is open right now, so the
+  // person never has to press Retry.
+  const focusedRef = useRef(false);
+  useOnReconnect(() => {
+    if (focusedRef.current) run();
+  });
+
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
+      focusedRef.current = true;
 
       (async () => {
         try {
@@ -55,6 +64,7 @@ export function useFocusRefetch(fetcher: () => Promise<void> | void) {
 
       return () => {
         cancelled = true;
+        focusedRef.current = false;
       };
     }, [])
   );

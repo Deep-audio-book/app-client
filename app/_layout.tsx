@@ -10,12 +10,18 @@ import { Provider } from 'react-redux';
 import initI18n from '@/constants/locales';
 import { UserProvider } from '@/contexts/UserContext';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import ConnectivityToast from '../components/ui/ConnectivityToast';
 import { MiniPlayer } from '../components/ui/MiniPlayer';
+import { TRANSITION } from '../components/ui/transitions';
 import ListenTracker from '../hooks/useListenTracker';
 import { PlayerProvider } from '../providers/PlayerProvider';
 import { loadUser } from '../redux/slices/authReducer';
 import { store } from '../redux/store';
+import { installOfflineLogFilter, startNetworkWatcher } from '../utils/network';
 import { useAppDispatch } from '../utils/typedReduxHooks';
+
+// No internet is not a crash: log it quietly, never as a red error pop-up.
+installOfflineLogFilter();
 
 // Android la direct "sign-in" route la open aagaama, eppovum "index" la irundhu start aaganum
 export const unstable_settings = {
@@ -35,6 +41,11 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+
+  // watches the connection; screens reload themselves when it comes back
+  useEffect(() => {
+    startNetworkWatcher();
+  }, []);
 
   // i18next must finish initialising before ANY screen calls
   // useTranslation(), otherwise t() returns the raw key strings
@@ -77,14 +88,33 @@ export default function RootLayout() {
                     Must stay INSIDE PlayerProvider + redux Provider. */}
                 <ListenTracker />
 
-                <Stack screenOptions={{ headerShown: false }}>
-                  <Stack.Screen name="index" />
-                  <Stack.Screen name="sign-in" />
+                {/* Subtle, consistent transitions for the whole app:
+                    - normal screens slide in from the right (native feel)
+                    - entry / auth screens cross-fade
+                    - player sheets slide up from the bottom */}
+                <Stack
+                  screenOptions={{
+                    headerShown: false,
+                    animation: 'slide_from_right',
+                    animationDuration: TRANSITION.screen,
+                    gestureEnabled: true,
+                    fullScreenGestureEnabled: true,
+                  }}
+                >
+                  <Stack.Screen name="index" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="onboarding" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="sign-in" options={{ animation: 'fade' }} />
+                  <Stack.Screen name="sign-up" options={{ animation: 'slide_from_right' }} />
+                  <Stack.Screen
+                    name="(tabs)"
+                    options={{ animation: 'fade', animationDuration: TRANSITION.tab }}
+                  />
                   <Stack.Screen
                     name="playlist-info"
                     options={{
                       presentation: 'transparentModal',
                       animation: 'slide_from_bottom',
+                      animationDuration: TRANSITION.screen,
                     }}
                   />
                   <Stack.Screen
@@ -92,10 +122,12 @@ export default function RootLayout() {
                     options={{
                       presentation: 'transparentModal',
                       animation: 'slide_from_bottom',
+                      animationDuration: TRANSITION.screen,
                     }}
                   />
                 </Stack>
                 <MiniPlayer />
+                <ConnectivityToast />
               </PlayerProvider>
               <StatusBar style="auto" />
             </ThemeProvider>

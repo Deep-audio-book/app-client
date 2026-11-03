@@ -6,9 +6,13 @@ import {
 import { useDownloadStore, waitForHydration } from "../download/downloadStore";
 import { getCurrentUserId } from "../download/currentUser";
 import { usePlayer } from "../../providers/PlayerProvider";
-import { setIsExpanded } from "../../redux/slices/playerReducer";
+import { useResumeLastPlayed } from "../../hooks/useResumeLastPlayed";
+import { useLastListenedStore } from "../../redux/slices/lastListenedStore";
+import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
+import { useOnReconnect } from "../../utils/network";
 import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useNetInfo } from "@react-native-community/netinfo";
 import React, { useCallback, useEffect, useState } from "react";
 import {
@@ -21,7 +25,6 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useDispatch } from "react-redux";
 import Svg, { Circle, Path, Polyline } from "react-native-svg";
 import ProfileDot from "../ui/ProfileDot";
 
@@ -118,93 +121,315 @@ const SectionHeader: React.FC<{ title: string; onViewAll?: () => void }> = ({
   </View>
 );
 
+/* ---------- rented books (with days left) ---------- */
+
+type RentedBook = {
+  story_id: number;
+  title: string;
+  cover: string | null;
+  author: string;
+  daysLeft: number | null; // null = backend sent no expiry
+  endsToday: boolean;
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Reads the rented books out of getLibraryData.
+ * Returns null when the backend does not send a rented section at all
+ * (then the section is hidden), [] when it is sent but empty.
+ *
+ * Accepted shapes (any one):
+ *   data.rented_books | data.rented.stories | data.rentals.stories | arrays
+ * each item: { id | story_id, title, cover, author, days_left
+ *              | expires_at | expiry_date | rental_expiry } (or nested `story`)
+ */
+const parseRented = (data: any): RentedBook[] | null => {
+  const raw =
+    data?.rented_books ??
+    data?.rented?.stories ??
+    data?.rentals?.stories ??
+    data?.rented ??
+    data?.rentals;
+
+  if (raw === undefined || raw === null) return null;
+  if (!Array.isArray(raw)) return [];
+
+  const now = Date.now();
+  const books: RentedBook[] = [];
+
+  for (const r of raw) {
+    const story = r?.story ?? r;
+    const id = story?.id ?? story?.story_id ?? r?.story_id;
+    if (id == null) continue;
+
+    const expiry = r?.expires_at ?? r?.expiry_date ?? r?.rental_expiry ?? story?.expires_at;
+    const sentDays = r?.days_left ?? r?.rental_days_left ?? r?.remaining_days;
+
+    let daysLeft: number | null = null;
+    let endsToday = false;
+
+    if (expiry) {
+      const ms = Date.parse(String(expiry)) - now;
+      if (Number.isFinite(ms)) {
+        if (ms <= 0) continue; // expired: not shown
+        daysLeft = Math.ceil(ms / DAY_MS);
+        endsToday = ms < DAY_MS;
+      }
+    } else if (sentDays != null && Number.isFinite(Number(sentDays))) {
+      daysLeft = Math.max(0, Number(sentDays));
+      endsToday = daysLeft <= 1;
+    }
+
+    books.push({
+      story_id: Number(id),
+      title: String(story?.title ?? ""),
+      cover: story?.cover ?? null,
+      author: String(story?.author ?? ""),
+      daysLeft,
+      endsToday,
+    });
+  }
+
+  return books;
+};
+
+const RentedRow: React.FC<{ item: RentedBook }> = ({ item }) => {
+  const { t } = useTranslation();
+
+  const left =
+    item.daysLeft === null
+      ? t("library.rentedActive", "Rented")
+      : item.endsToday
+      ? t("library.endsToday", "Ends today")
+      : t("library.daysLeft", { days: item.daysLeft, defaultValue: "{{days}} days left" });
+
+  const urgent = item.daysLeft !== null && item.daysLeft <= 2;
+
+  return (
+    <TouchableOpacity
+      style={styles.trackRow}
+      activeOpacity={0.85}
+      onPress={() =>
+        router.push({
+          pathname: "/storyEpisode",
+          params: { storyId: String(item.story_id), tab: "chapters" },
+        } as any)
+      }
+      accessibilityRole="button"
+      accessibilityLabel={`${item.title}, ${left}`}
+    >
+      <View style={styles.trackArt}>
+        {item.cover ? (
+          <Image source={{ uri: item.cover }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+        ) : (
+          <LinearGradient
+            colors={["#7a5ae0", "#3a2a8a"]}
+            start={{ x: 0.2, y: 0 }}
+            end={{ x: 0.8, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+        )}
+      </View>
+
+      <View style={styles.trackInfo}>
+        <Text style={styles.trackTitle} numberOfLines={1}>
+          {item.title}
+        </Text>
+        {!!item.author && (
+          <Text style={styles.trackMeta} numberOfLines={1}>
+            {item.author}
+          </Text>
+        )}
+      </View>
+
+      <View style={[styles.expiryPill, urgent && styles.expiryPillUrgent]}>
+        <Ionicons name="time-outline" size={12} color={urgent ? "#ff9a8a" : "#D9A441"} />
+        <Text style={[styles.expiryText, urgent && { color: "#ff9a8a" }]}>{left}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+};
+
 /* ---------- Recently listened row (real backend data) ---------- */
 
-const RecentRow: React.FC<{ item: LibraryCard }> = ({ item }) => (
-  <TouchableOpacity
-    style={styles.trackRow}
-    activeOpacity={0.85}
-    onPress={() =>
-      router.push({ pathname: "/storyEpisode", params: { storyId: item.story_id } } as any)
-    }
-    accessibilityRole="button"
-    accessibilityLabel={item.title}
-  >
-    <View style={styles.trackArt}>
-      {item.cover ? (
-        <Image source={{ uri: item.cover }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
-      ) : (
-        <LinearGradient
-          colors={["#e04a7a", "#8a2a4a"]}
-          start={{ x: 0.2, y: 0 }}
-          end={{ x: 0.8, y: 1 }}
-          style={StyleSheet.absoluteFillObject}
-        />
-      )}
-    </View>
+const RecentRow: React.FC<{ item: LibraryCard; onPress: () => void }> = ({ item, onPress }) => {
+  const { t } = useTranslation();
 
-    <View style={styles.trackInfo}>
-      <Text style={styles.trackTitle} numberOfLines={1}>
-        {item.title}
-      </Text>
-      <Text style={styles.trackMeta} numberOfLines={1}>
-        {item.current_chapter_number
-          ? `Episode ${item.current_chapter_number}/${item.total_chapters}`
-          : item.genre}
-      </Text>
-    </View>
+  return (
+    <TouchableOpacity
+      style={styles.trackRow}
+      activeOpacity={0.85}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={item.title}
+    >
+      <View style={styles.trackArt}>
+        {item.cover ? (
+          <Image source={{ uri: item.cover }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+        ) : (
+          <LinearGradient
+            colors={["#e04a7a", "#8a2a4a"]}
+            start={{ x: 0.2, y: 0 }}
+            end={{ x: 0.8, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+        )}
+      </View>
 
-    <ChevronRightIcon />
-  </TouchableOpacity>
-);
+      <View style={styles.trackInfo}>
+        <Text style={styles.trackTitle} numberOfLines={1}>
+          {item.title}
+        </Text>
+        <Text style={styles.trackMeta} numberOfLines={1}>
+          {item.current_chapter_number
+            ? t("library.episodeOf", {
+                current: item.current_chapter_number,
+                total: item.total_chapters,
+                defaultValue: "Episode {{current}}/{{total}}",
+              })
+            : item.genre}
+        </Text>
+      </View>
+
+      <ChevronRightIcon />
+    </TouchableOpacity>
+  );
+};
 
 /* ---------- Downloaded row (local data) ---------- */
 
-const DownloadedRowView: React.FC<{ item: DownloadedRow; onPress: () => void }> = ({
-  item,
-  onPress,
-}) => (
-  <TouchableOpacity
-    style={styles.trackRow}
-    activeOpacity={0.85}
-    onPress={onPress}
-    accessibilityRole="button"
-    accessibilityLabel={item.title}
-  >
-    <View style={styles.trackArt}>
-      {item.coverUri ? (
-        <Image source={{ uri: item.coverUri }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+const DownloadedRowView: React.FC<{
+  item: DownloadedRow;
+  kind: "audio" | "video";
+  onPress: () => void;
+}> = ({ item, kind, onPress }) => {
+  const { t } = useTranslation();
+  const unit = kind === "video" ? "video" : "episode";
+
+  return (
+    <TouchableOpacity
+      style={styles.trackRow}
+      activeOpacity={0.85}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={item.title}
+    >
+      <View style={styles.trackArt}>
+        {item.coverUri ? (
+          <Image source={{ uri: item.coverUri }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+        ) : (
+          <LinearGradient
+            colors={["#4ae0b0", "#2a6a8a"]}
+            start={{ x: 0.2, y: 0 }}
+            end={{ x: 0.8, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+        )}
+      </View>
+
+      <View style={styles.trackInfo}>
+        <Text style={styles.trackTitle} numberOfLines={1}>
+          {item.title}
+        </Text>
+        <Text style={styles.trackMeta} numberOfLines={1}>
+          {item.allDownloaded
+            ? t(`library.${unit}sDownloaded`, {
+                n: item.episodesDownloaded,
+                defaultValue: `{{n}} ${unit}${item.episodesDownloaded === 1 ? "" : "s"} · Downloaded`,
+              })
+            : t("library.partDownloaded", {
+                done: item.episodesDownloaded,
+                total: item.totalEpisodes,
+                defaultValue: `{{done}}/{{total}} ${unit}s downloaded`,
+              })}
+        </Text>
+      </View>
+
+      {item.allDownloaded ? <CheckIcon /> : <DownloadingIcon />}
+    </TouchableOpacity>
+  );
+};
+
+/* ---------- one download group: "Downloaded audio" / "Downloaded video" ---------- */
+
+const PREVIEW_COUNT = 3;
+
+const DownloadGroup: React.FC<{
+  kind: "audio" | "video";
+  rows: DownloadedRow[];
+  emptyText: string;
+  openingStoryId: string | null;
+  onOpen: (item: DownloadedRow) => void;
+}> = ({ kind, rows, emptyText, openingStoryId, onOpen }) => {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+
+  const visible = expanded ? rows : rows.slice(0, PREVIEW_COUNT);
+
+  return (
+    <View style={styles.group}>
+      <View style={styles.groupHeader}>
+        <View style={[styles.groupIcon, kind === "video" && { backgroundColor: "#1f1a2e" }]}>
+          <Ionicons
+            name={kind === "video" ? "videocam" : "headset"}
+            size={15}
+            color={kind === "video" ? "#a78bfa" : "#D9A441"}
+          />
+        </View>
+
+        <Text style={styles.groupTitle}>
+          {kind === "video"
+            ? t("library.downloadedVideo", "Downloaded video")
+            : t("library.downloadedAudio", "Downloaded audio")}
+        </Text>
+
+        <Text style={styles.groupCount}>{rows.length}</Text>
+
+        {rows.length > PREVIEW_COUNT && (
+          <TouchableOpacity
+            onPress={() => setExpanded((v) => !v)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+          >
+            <Text style={styles.viewAllText}>
+              {expanded ? t("library.showLess", "Show less") : t("library.viewAll", "View all")}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {rows.length === 0 ? (
+        <Text style={styles.emptyStateText}>{emptyText}</Text>
       ) : (
-        <LinearGradient
-          colors={["#4ae0b0", "#2a6a8a"]}
-          start={{ x: 0.2, y: 0 }}
-          end={{ x: 0.8, y: 1 }}
-          style={StyleSheet.absoluteFillObject}
-        />
+        <View style={styles.trackList}>
+          {visible.map((item) => (
+            <View key={`${kind}-${item.storyId}`}>
+              {openingStoryId === item.storyId ? (
+                <View style={styles.trackRow}>
+                  <ActivityIndicator size="small" color="#D9A441" />
+                  <Text style={[styles.trackMeta, { marginLeft: 12 }]}>
+                    {t("library.opening", "Opening…")}
+                  </Text>
+                </View>
+              ) : (
+                <DownloadedRowView item={item} kind={kind} onPress={() => onOpen(item)} />
+              )}
+            </View>
+          ))}
+        </View>
       )}
     </View>
-
-    <View style={styles.trackInfo}>
-      <Text style={styles.trackTitle} numberOfLines={1}>
-        {item.title}
-      </Text>
-      <Text style={styles.trackMeta} numberOfLines={1}>
-        {item.allDownloaded
-          ? `${item.episodesDownloaded} episode${item.episodesDownloaded === 1 ? "" : "s"} · Downloaded`
-          : `${item.episodesDownloaded}/${item.totalEpisodes} episodes downloaded`}
-      </Text>
-    </View>
-
-    {item.allDownloaded ? <CheckIcon /> : <DownloadingIcon />}
-  </TouchableOpacity>
-);
+  );
+};
 
 /* ---------- main component ---------- */
 
 const LibraryScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
-  const dispatch = useDispatch();
-  const { playChapterAt, setChapters } = usePlayer();
+  const { t } = useTranslation();
+  const { playChapterAt, setChapters, openPlayerScreen } = usePlayer();
+  const { resume, resuming } = useResumeLastPlayed();
 
   const netInfo = useNetInfo();
   const offline =
@@ -212,14 +437,21 @@ const LibraryScreen: React.FC = () => {
 
   const [lastPlayed, setLastPlayed] = useState<LibraryCard | null>(null);
   const [recentlyListened, setRecentlyListened] = useState<LibraryCard[]>([]);
+  const [rented, setRented] = useState<RentedBook[] | null>(null);
   const [libraryLoading, setLibraryLoading] = useState(true);
 
-  const [downloaded, setDownloaded] = useState<DownloadedRow[]>([]);
+  const [downloadedAudio, setDownloadedAudio] = useState<DownloadedRow[]>([]);
+  const [downloadedVideo, setDownloadedVideo] = useState<DownloadedRow[]>([]);
   const [openingStoryId, setOpeningStoryId] = useState<string | null>(null);
 
-  // ---- Last played / Recently listened: real backend data ----
-  // Needs the network - if offline, we just skip the call and hide this
-  // block; Downloaded (below) still works because it's local.
+  // What the player remembers is newer than the server data loaded here.
+  const localLast = useLastListenedStore((s) =>
+    lastPlayed ? s.entries[String(lastPlayed.story_id)] : undefined
+  );
+
+  // ---- Last played / Rented / Recently listened: backend data ----
+  // Needs the network - if offline, we skip the call and hide these
+  // blocks; Downloads (below) still work because they are local.
   const fetchLibraryData = useCallback(async () => {
     if (offline) {
       setLibraryLoading(false);
@@ -239,31 +471,41 @@ const LibraryScreen: React.FC = () => {
       });
 
       if (response.data?.statusCode === 200) {
-        const lastPlayedStory = response.data.data?.last_played?.story;
+        const data = response.data.data;
+
+        const lastPlayedStory = data?.last_played?.story;
         setLastPlayed(lastPlayedStory ? normalizeStory(lastPlayedStory) : null);
 
-        const recentStories: RawStory[] =
-          response.data.data?.recently_listened?.stories ?? [];
+        const recentStories: RawStory[] = data?.recently_listened?.stories ?? [];
         setRecentlyListened(recentStories.map(normalizeStory));
+
+        // Rented books (free users too) with the days left
+        setRented(parseRented(data));
       } else {
-        console.log(
-          "getLibraryData non-200 statusCode:",
-          response.data?.statusCode
-        );
+        console.log("getLibraryData non-200 statusCode:", response.data?.statusCode);
       }
     } catch (error) {
       console.log("getLibraryData failed:", error);
-      // Silent - Downloaded section below still works fully offline.
+      // Silent - Downloads below still work fully offline.
     } finally {
       setLibraryLoading(false);
     }
   }, [offline]);
 
-  useEffect(() => {
+  // internet came back -> reload last played / rented / recent by itself
+  useOnReconnect(() => {
     fetchLibraryData();
-  }, [fetchLibraryData]);
+  });
 
-  // ---- Downloaded: local data, always works, online or offline ----
+  // Reload when the person comes back to this tab (they may have listened,
+  // rented or downloaded something meanwhile).
+  useFocusEffect(
+    useCallback(() => {
+      fetchLibraryData();
+    }, [fetchLibraryData])
+  );
+
+  // ---- Downloads: local data, always works, online or offline ----
   const downloadSig = useDownloadStore((s) =>
     Object.values(s.files)
       .map((f) => `${f.storyId}:${f.chapterId}:${f.kind}:${f.status}`)
@@ -273,17 +515,20 @@ const LibraryScreen: React.FC = () => {
 
   useEffect(() => {
     waitForHydration().then(() => {
-      setDownloaded(getDownloadedStorySummaries());
+      setDownloadedAudio(getDownloadedStorySummaries("audio"));
+      setDownloadedVideo(getDownloadedStorySummaries("video"));
     });
   }, [downloadSig]);
 
-  // ---- Tap a downloaded story ----
-  // A single-episode story has nothing to choose between, so it plays
-  // right away. A multi-episode story opens the chapter list (AlbumScreen)
-  // so the person can pick which downloaded episode to resume.
+  // ---- Tap a downloaded AUDIO story ----
+  // A single-episode story plays right away. A multi-episode story opens
+  // the chapter list so the person can pick which episode to resume.
   const handleOpenDownloaded = async (item: DownloadedRow) => {
     if (item.totalEpisodes > 1) {
-      router.push({ pathname: "/storyEpisode", params: { storyId: item.storyId } } as any);
+      router.push({
+        pathname: "/storyEpisode",
+        params: { storyId: item.storyId, tab: "chapters" },
+      } as any);
       return;
     }
 
@@ -304,8 +549,7 @@ const LibraryScreen: React.FC = () => {
 
       setChapters(chapters);
       await playChapterAt(0, { autoPlay: true });
-      dispatch(setIsExpanded(true));
-      router.push("/player-standard");
+      openPlayerScreen();
     } catch (error) {
       console.error("Play downloaded story error:", error);
       router.push({ pathname: "/storyEpisode", params: { storyId: item.storyId } } as any);
@@ -313,6 +557,33 @@ const LibraryScreen: React.FC = () => {
       setOpeningStoryId(null);
     }
   };
+
+  // ---- Tap a downloaded VIDEO story: open its episode list (videos play there) ----
+  const handleOpenDownloadedVideo = (item: DownloadedRow) => {
+    router.push({
+      pathname: "/storyEpisode",
+      params: { storyId: item.storyId, tab: "chapters" },
+    } as any);
+  };
+
+  // Last played: continue at the episode and the exact second the person
+  // stopped at (the player's own record wins over the server's older copy).
+  const lastChapter = localLast?.chapterNumber ?? lastPlayed?.current_chapter_number ?? null;
+
+  const lastPercent = (() => {
+    if (
+      localLast &&
+      localLast.durationSec > 0 &&
+      lastPlayed &&
+      lastChapter === localLast.chapterNumber
+    ) {
+      return Math.min(100, Math.round((localLast.positionSec / localLast.durationSec) * 100));
+    }
+    return lastPlayed?.resume_percentage ?? 0;
+  })();
+
+  const hasAudio = downloadedAudio.length > 0;
+  const hasVideo = downloadedVideo.length > 0;
 
   return (
     <View style={styles.wrap}>
@@ -331,9 +602,9 @@ const LibraryScreen: React.FC = () => {
         {/* ---------- top bar ---------- */}
 
         <View style={[styles.topbar, { paddingTop: insets.top + 8 }]}>
-          <Text style={styles.screenTitle}>Library</Text>
+          <Text style={styles.screenTitle}>{t("library.title", "Library")}</Text>
 
-           <ProfileDot dotStyle={styles.profileDot} textStyle={styles.profileDotText} />
+          <ProfileDot dotStyle={styles.profileDot} textStyle={styles.profileDotText} />
         </View>
 
         {/* ---------- last played (needs network) ---------- */}
@@ -341,30 +612,27 @@ const LibraryScreen: React.FC = () => {
         {offline ? (
           <View style={styles.offlineBanner}>
             <Text style={styles.offlineBannerText}>
-              You're offline. Last played and recently listened need internet -
-              your downloaded episodes below still work.
+              {t(
+                "library.offlineNote",
+                "You're offline. Last played, rented and recently listened need internet - your downloads below still work."
+              )}
             </Text>
           </View>
-        ) : libraryLoading ? (
+        ) : libraryLoading && !lastPlayed ? (
           <View style={styles.section}>
             <ActivityIndicator size="small" color="#D9A441" />
           </View>
         ) : (
           lastPlayed && (
             <View style={styles.section}>
-              <Text style={styles.eyebrow}>Last played</Text>
+              <Text style={styles.eyebrow}>{t("library.lastPlayed", "Last played")}</Text>
 
               <TouchableOpacity
                 style={styles.lastPlayedCard}
                 activeOpacity={0.9}
-                onPress={() =>
-                  router.push({
-                    pathname: "/storyEpisode",
-                    params: { storyId: lastPlayed.story_id },
-                  } as any)
-                }
+                onPress={() => resume(String(lastPlayed.story_id), lastChapter)}
                 accessibilityRole="button"
-                accessibilityLabel={`Resume ${lastPlayed.title}`}
+                accessibilityLabel={`${t("home.resume", "Resume")} ${lastPlayed.title}`}
               >
                 <View style={styles.lastPlayedArt}>
                   {lastPlayed.cover ? (
@@ -388,74 +656,101 @@ const LibraryScreen: React.FC = () => {
                     {lastPlayed.title}
                   </Text>
                   <Text style={styles.lastPlayedSubtitle} numberOfLines={1}>
-                    {lastPlayed.current_chapter_number
-                      ? `Episode ${lastPlayed.current_chapter_number}/${lastPlayed.total_chapters}`
+                    {lastChapter
+                      ? t("library.episodeOf", {
+                          current: lastChapter,
+                          total: lastPlayed.total_chapters,
+                          defaultValue: "Episode {{current}}/{{total}}",
+                        })
                       : lastPlayed.genre}
                   </Text>
                   <View style={styles.progressTrack}>
-                    <View
-                      style={[
-                        styles.progressFill,
-                        { width: `${lastPlayed.resume_percentage ?? 0}%` },
-                      ]}
-                    />
+                    <View style={[styles.progressFill, { width: `${lastPercent}%` }]} />
                   </View>
                 </View>
 
                 <View style={styles.resumeButton}>
-                  <PlayIcon />
+                  {resuming ? <ActivityIndicator size="small" color="#000" /> : <PlayIcon />}
                 </View>
               </TouchableOpacity>
             </View>
           )
         )}
 
-        {/* ---------- downloaded (local data, always works) ---------- */}
-        {/* Shown before "Recently listened" to match the design. */}
+        {/* ---------- rented books + days left (free users too) ---------- */}
+
+        {!offline && rented !== null && (
+          <View style={styles.section}>
+            <SectionHeader title={t("library.rented", "Rented books")} />
+
+            {rented.length === 0 ? (
+              <Text style={styles.emptyStateText}>
+                {t("library.noRented", "No rented books right now. Rent a book to listen to it here.")}
+              </Text>
+            ) : (
+              <View style={styles.trackList}>
+                {rented.map((item) => (
+                  <RentedRow key={item.story_id} item={item} />
+                ))}
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* ---------- downloads: audio and video listed separately ---------- */}
 
         <View style={styles.section}>
-          <SectionHeader
-            title="Downloaded"
-            onViewAll={downloaded.length > 0 ? () => router.push("/downloaded" as any) : undefined}
-          />
+          <SectionHeader title={t("library.downloads", "Downloads")} />
 
-          {downloaded.length === 0 ? (
+          {!hasAudio && !hasVideo && (
             <View style={styles.emptyState}>
               <Text style={styles.emptyStateText}>
                 {offline
-                  ? "No downloaded episodes yet. Connect to the internet to download some for offline listening."
-                  : "No downloaded episodes yet. Open a story and tap the download icon on an episode."}
+                  ? t(
+                      "library.noDownloadsOffline",
+                      "No downloads yet. Connect to the internet to download episodes for offline listening."
+                    )
+                  : t(
+                      "library.noDownloads",
+                      "No downloads yet. Open a story and tap the download icon on an episode."
+                    )}
               </Text>
             </View>
-          ) : (
-            <View style={styles.trackList}>
-              {downloaded.map((item) => (
-                <View key={item.storyId}>
-                  {openingStoryId === item.storyId ? (
-                    <View style={styles.trackRow}>
-                      <ActivityIndicator size="small" color="#D9A441" />
-                      <Text style={[styles.trackMeta, { marginLeft: 12 }]}>Opening…</Text>
-                    </View>
-                  ) : (
-                    <DownloadedRowView item={item} onPress={() => handleOpenDownloaded(item)} />
-                  )}
-                </View>
-              ))}
-            </View>
+          )}
+
+          {(hasAudio || hasVideo) && (
+            <>
+              <DownloadGroup
+                kind="audio"
+                rows={downloadedAudio}
+                emptyText={t("library.noAudioDownloads", "No audio downloads yet.")}
+                openingStoryId={openingStoryId}
+                onOpen={handleOpenDownloaded}
+              />
+
+              <DownloadGroup
+                kind="video"
+                rows={downloadedVideo}
+                emptyText={t("library.noVideoDownloads", "No video downloads yet.")}
+                openingStoryId={openingStoryId}
+                onOpen={handleOpenDownloadedVideo}
+              />
+            </>
           )}
         </View>
 
-        {/* ---------- recently listened (real data) ---------- */}
+        {/* ---------- recently listened (tap = continue where you stopped) ---------- */}
 
         {!offline && !libraryLoading && recentlyListened.length > 0 && (
           <View style={styles.section}>
-            <SectionHeader
-              title="Recently listened"
-              onViewAll={() => router.push("/recentlyListened" as any)}
-            />
+            <SectionHeader title={t("library.recentlyListened", "Recently listened")} />
             <View style={styles.trackList}>
               {recentlyListened.map((item) => (
-                <RecentRow key={item.story_id} item={item} />
+                <RecentRow
+                  key={item.story_id}
+                  item={item}
+                  onPress={() => resume(String(item.story_id), item.current_chapter_number)}
+                />
               ))}
             </View>
           </View>
@@ -619,6 +914,53 @@ const styles = StyleSheet.create({
 
   trackList: {
     gap: 0,
+  },
+
+  /* download groups + rented expiry */
+  group: {
+    marginBottom: 16,
+  },
+  groupHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  groupIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "#2a2216",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  groupTitle: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#fff",
+  },
+  groupCount: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.45)",
+    marginRight: 6,
+  },
+  expiryPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: "rgba(217,164,65,0.12)",
+  },
+  expiryPillUrgent: {
+    backgroundColor: "rgba(255,120,100,0.14)",
+  },
+  expiryText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#D9A441",
   },
   trackRow: {
     flexDirection: "row",

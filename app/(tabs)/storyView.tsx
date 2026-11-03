@@ -10,6 +10,8 @@ const BG_COLORS: Record<string, string> = {
   getAuthorDetails : "#86915079",
   getFavouriteStories: "#632e3a",
   getNarratorDetails: "#684a6a",
+  getListenLaterStories: "#2e3f63",
+  getBookmarkedChapters: "#5c4a2a",
 };
 
 const DEFAULT_BG_COLOR = "#2E635B";

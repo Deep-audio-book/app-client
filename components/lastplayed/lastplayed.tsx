@@ -1,3 +1,4 @@
+import { useOnReconnect } from '../../utils/network';
 import axios from "@/axios.config";
 import { getCurrentUserId } from "../download/currentUser";
 import { Ionicons } from '@expo/vector-icons';
@@ -65,6 +66,10 @@ export default function PlaylistInfoScreen() {
 
   const [story, setStory] = useState<LastPlayedStory | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // internet came back -> load again by itself
+  useOnReconnect(() => setReloadKey((k) => k + 1));
 
   useEffect(() => {
     let cancelled = false;
@@ -99,7 +104,7 @@ export default function PlaylistInfoScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
 
   const sheetWidth = Math.min(width, MAX_SHEET_WIDTH);
   const scale = clampValue(sheetWidth / BASE_WIDTH, 0.85, 1.2);

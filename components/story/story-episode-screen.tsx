@@ -1,5 +1,7 @@
 import axios from "@/axios.config";
 import PurchaseOptionsCard from "@/components/ui/PurchaseOptionsCard";
+import SectionTransition from "@/components/ui/SectionTransition";
+import ListenLaterButton from "@/components/ui/ListenLaterButton";
 import WishlistHeart from "@/components/ui/WishlistHeart";
 import { useCartBadge } from "@/hooks/useCartBadge";
 import { storyWishlisted, useWishlistStore } from "@/redux/slices/wishlistStore";
@@ -53,17 +55,16 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusRefetch } from "../../hooks/useFocusRefetch";
 import { usePlayer } from "../../providers/PlayerProvider";
-import { setIsExpanded } from "../../redux/slices/playerReducer";
 import { RootState } from "../../redux/store";
 import AboutSection from "./AboutSection";
-import StickyActionBar from "./StickyActionBar";
-import { CreditItem, getStoryMeta } from "./storyMeta";
 import styles, {
   BASE_WIDTH,
   COLORS,
   MAX_CONTENT_WIDTH,
   MINI_PLAYER_HEIGHT,
 } from "./episodeStyle";
+import StickyActionBar from "./StickyActionBar";
+import { CreditItem, getStoryMeta } from "./storyMeta";
 
 // Bookmarks tab removed
 type TabKey = "about" | "chapters";
@@ -1702,13 +1703,13 @@ export default function AlbumScreen() {
   // About-page data: rating, views, short synopsis, credits
   const meta = getStoryMeta(storyDetail);
 
-  if (__DEV__) {
-    // Shows in the Metro terminal: which fields getStoryDetail really sends.
-    // Use it to confirm the final names for author / narrator / production.
-    console.log("[About] getStoryDetail keys:", Object.keys(storyDetail));
-    console.log("[About] credits raw:", JSON.stringify((storyDetail as any).credits));
-    console.log("[About] credits parsed:", JSON.stringify(meta.credits));
-  }
+  // if (__DEV__) {
+  //   // Shows in the Metro terminal: which fields getStoryDetail really sends.
+  //   // Use it to confirm the final names for author / narrator / production.
+  //   console.log("[About] getStoryDetail keys:", Object.keys(storyDetail));
+  //   console.log("[About] credits raw:", JSON.stringify((storyDetail as any).credits));
+  //   console.log("[About] credits parsed:", JSON.stringify(meta.credits));
+  // }
 
   // Titles that can only be rented must never show a purchase action
   const rentalOnly = ["rental_only", "is_rental_only"].some((k) => {
@@ -1891,6 +1892,18 @@ export default function AlbumScreen() {
             inactiveColor={COLORS.cream}
           />
 
+          {/* Listen Later: saves the whole book for later.
+              Separate from the heart (favourite) and chapter bookmarks. */}
+          {!isOfflineMode && (
+            <ListenLaterButton
+              storyId={storyDetail.id}
+              initial={!!((storyDetail as any).listen_later ?? (storyDetail as any).is_listen_later)}
+              size={23}
+              inactiveColor={COLORS.cream}
+              activeColor={COLORS.gold}
+            />
+          )}
+
           {/* Download all episodes */}
           <Pressable
             hitSlop={8}
@@ -2048,7 +2061,7 @@ export default function AlbumScreen() {
 
       {/* One-time purchase banner (chapters tab only) */}
       {tab === "chapters" && showPurchaseCard && (
-        <View style={localStyles.pricingBanner}>
+        <SectionTransition sectionKey={tab} style={localStyles.pricingBanner}>
           <View style={localStyles.pricingBannerAccent} />
           <View style={localStyles.pricingBannerIcon}>
             <Ionicons
@@ -2068,7 +2081,7 @@ export default function AlbumScreen() {
               })}
             </Text>
           </View>
-        </View>
+        </SectionTransition>
       )}
 
       {tab === "chapters" && <View style={{ height: 18 }} />}
@@ -2104,7 +2117,10 @@ export default function AlbumScreen() {
   ) : null;
 
   const listFooter = (
-    <View style={{ paddingHorizontal: horizontalPadding }}>
+    <SectionTransition
+      sectionKey={tab}
+      style={{ paddingHorizontal: horizontalPadding }}
+    >
       {tab === "chapters" && purchaseSection}
 
       {tab === "about" && (
@@ -2133,7 +2149,7 @@ export default function AlbumScreen() {
           )}
         </AboutSection>
       )}
-    </View>
+    </SectionTransition>
   );
 
   // -------------------------------------------------------
@@ -2179,7 +2195,11 @@ export default function AlbumScreen() {
           const lineLit = isChapterListened(item) && isChapterListened(next);
 
           return (
-            <View style={{ paddingHorizontal: horizontalPadding }}>
+            <SectionTransition
+              sectionKey={tab}
+              index={index}
+              style={{ paddingHorizontal: horizontalPadding }}
+            >
               <TrackRow
                 track={item}
                 story={storyDetail}
@@ -2197,7 +2217,7 @@ export default function AlbumScreen() {
                 prepareChapters={prepareChapters}
                 onLockedPress={onLockedChapterPress}
               />
-            </View>
+            </SectionTransition>
           );
         }}
         ItemSeparatorComponent={() => <View style={{ height: ROW_GAP }} />}

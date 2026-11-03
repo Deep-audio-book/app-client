@@ -455,13 +455,18 @@ export type DownloadedStorySummary = {
   allDownloaded: boolean;
 };
 
-/** One row per story that has at least one downloaded episode. */
-export function getDownloadedStorySummaries(): DownloadedStorySummary[] {
+/**
+ * One row per story that has at least one downloaded episode of `kind`.
+ * Audio and video downloads are listed separately in the Library.
+ */
+export function getDownloadedStorySummaries(
+  kind: MediaKind = "audio"
+): DownloadedStorySummary[] {
   const { files, stories } = useDownloadStore.getState();
 
   const downloadedCountByStory = new Map<string, number>();
   for (const rec of Object.values(files)) {
-    if (rec.status !== "downloaded" || rec.kind !== "audio") continue;
+    if (rec.status !== "downloaded" || rec.kind !== kind) continue;
     downloadedCountByStory.set(
       rec.storyId,
       (downloadedCountByStory.get(rec.storyId) ?? 0) + 1
@@ -474,14 +479,21 @@ export function getDownloadedStorySummaries(): DownloadedStorySummary[] {
     const story = stories[storyId];
     if (!story) continue;
 
+    // video: only episodes that really have a video count as "total"
+    const total =
+      kind === "video"
+        ? (story.chapters ?? []).filter((c) => c.video_status === 1).length ||
+          count
+        : story.chapters?.length ?? count;
+
     summaries.push({
       storyId,
       title: story.title,
       genre: story.genre,
       coverUri: story.coverFile ? localUri(story.coverFile) : null,
       episodesDownloaded: count,
-      totalEpisodes: story.chapters?.length ?? count,
-      allDownloaded: count >= (story.chapters?.length ?? count),
+      totalEpisodes: total,
+      allDownloaded: count >= total,
     });
   }
 

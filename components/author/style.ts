@@ -55,6 +55,8 @@ const styles = StyleSheet.create({
   circleButtonPlaceholder: {
     width: 35,
     height: 35,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: {
     flex: 1,
